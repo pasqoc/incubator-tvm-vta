@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 /*!
  * \file sim_tlpp.h
  * \brief TVM VTA multiple thread simulator header file.
@@ -37,7 +39,7 @@
 #define SCORELOAD "load"
 #define SCORESTORE "store"
 #define SCOREUNKNOWN "unknown"
-typedef void (*Run_Function)(const VTAGenericInsn *, void *);
+typedef uint32_t (*Run_Function)(const VTAGenericInsn *, void *);
 typedef enum {COREGEMM = 0, CORELOAD, CORESTORE, COREMAX} CORE_TYPE;
 typedef std::queue<const void*> Insn_q_t;
 typedef std::queue<int> Dep_q_t;
@@ -67,6 +69,8 @@ class TlppVerify {
     void EventProcess(void);
     /*! \ Schedule a paticular core to run. */
     void CoreRun(CORE_TYPE core_type);
+    /*! \ Clear cycle counters. */
+    void ClearCycle();
 
  private:
     /*! TlppVerify construction function.*/
@@ -157,5 +161,10 @@ class TlppVerify {
     int done_;
     /*! event queue for core wake up*/
     std::queue<CORE_TYPE> dep_push_event_;
+    public:
+    /*! core cycle time */
+    int64_t core_time_cycles_[COREMAX] = {0, 0, 0};
+    /*! core idle time */
+    int64_t core_idle_cycles_[COREMAX] = {0, 0, 0};
 };
 #endif  // VTA_SIM_TLPP_H_

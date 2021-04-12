@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 /*!
  * \file vta.cpp
  * \brief VTA HLS design.
@@ -28,22 +30,63 @@
 
 #include "vta.h"
 
-template <typename DATA_T, int MAT_AXI_RATIO>
+// Unfortunately c++14 constexpr construction is not supported
+// so we specialize for known cases below.
+template<int BUS_WIDTH, int DATA_WIDTH>
+struct ResetData
+{
+  static constexpr int n = BUS_WIDTH / DATA_WIDTH;
+  static constexpr int m = DATA_WIDTH / 8;
+
+  uint8_t zero[n];
+  uint8_t minv[n];
+
+  //constexpr ResetData() : zero(), minv() {
+  //  for (int i = 0; i < n; i++) {
+  //    minv[i] = i % m == m - 1 ? 0x80 : 0x00;
+  //    zero[i] = 0x00;
+  //  }
+  //}
+
+  private:
+    // Fail to compile if instantiation not found.
+    ResetData (const ResetData &rhs);
+};
+
+template<>
+struct ResetData<64, 8>
+{
+  uint8_t zero[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  uint8_t minv[8] = {0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80};
+};
+
+template<>
+struct ResetData<64, 32>
+{
+  uint8_t zero[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  uint8_t minv[8] = {0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00, 0x80};
+};
+
+template <typename DATA_T, int MAT_AXI_RATIO, int DATA_WIDTH>
 void reset_mem(
   memop_sram_T &sram_idx,
   memop_sram_T range,
-  DATA_T mem[][MAT_AXI_RATIO]) {
+  DATA_T mem[][MAT_AXI_RATIO],
+  bool is_min) {
+
+  static ResetData<DATA_T::width, DATA_WIDTH> rst_data;
+  DATA_T *rst_val = is_min ? (DATA_T*) rst_data.minv : (DATA_T*) rst_data.zero;
 
   for (int i = 0; i < range; i ++) {
     for (int j = 0; j < MAT_AXI_RATIO; j ++) {
 #pragma HLS UNROLL
-      mem[sram_idx][j] = 0;
+      mem[sram_idx][j] = *rst_val;
     }
     sram_idx ++;
   }
 }
 
-template <typename DATA_T, int MAT_AXI_RATIO, int ELEM_BYTES>
+template <typename DATA_T, int MAT_AXI_RATIO, int ELEM_BYTES, int DATA_WIDTH>
 void load_pad_2d(
   volatile DATA_T *src,
   DATA_T dst[][MAT_AXI_RATIO],
@@ -54,22 +97,23 @@ void load_pad_2d(
   memop_stride_T x_stride,
   memop_pad_T x_pad_0,
   memop_pad_T x_pad_1,
+  bool is_min,
   memop_sram_T y_offset_0,
   memop_sram_T y_offset_1) {
 #pragma HLS INLINE
 
-  reset_mem<DATA_T, MAT_AXI_RATIO>(sram_idx, y_offset_0, dst);
+  reset_mem<DATA_T, MAT_AXI_RATIO, DATA_WIDTH>(sram_idx, y_offset_0, dst, is_min);
   for (int y = 0; y < y_size; y++) {
 #pragma HLS PIPELINE
-    reset_mem<DATA_T, MAT_AXI_RATIO>(sram_idx, x_pad_0, dst);
+    reset_mem<DATA_T, MAT_AXI_RATIO, DATA_WIDTH>(sram_idx, x_pad_0, dst, is_min);
     memcpy(&dst[sram_idx][0],
            (const DATA_T*) &src[dram_idx * MAT_AXI_RATIO],
            x_size * ELEM_BYTES);
     sram_idx += x_size;
     dram_idx += x_stride;
-    reset_mem<DATA_T, MAT_AXI_RATIO>(sram_idx, x_pad_1, dst);
+    reset_mem<DATA_T, MAT_AXI_RATIO, DATA_WIDTH>(sram_idx, x_pad_1, dst, is_min);
   }
-  reset_mem<DATA_T, MAT_AXI_RATIO>(sram_idx, y_offset_1, dst);
+  reset_mem<DATA_T, MAT_AXI_RATIO, DATA_WIDTH>(sram_idx, y_offset_1, dst, is_min);
 }
 
 template <typename DATA_T, int MAT_AXI_RATIO, int ELEM_BYTES>
@@ -204,7 +248,7 @@ void load(
 #pragma HLS RESOURCE variable = y_offset_1 core = Mul_LUT latency = 4
 
   if (insn.memory_type == VTA_MEM_ID_INP) {
-    load_pad_2d<bus_T, INP_MAT_AXI_RATIO, VTA_INP_ELEM_BYTES>(
+    load_pad_2d<bus_T, INP_MAT_AXI_RATIO, VTA_INP_ELEM_BYTES, VTA_INP_WIDTH>(
         inputs,
         inp_mem,
         insn.sram_base,
@@ -214,6 +258,7 @@ void load(
         insn.x_stride,
         insn.x_pad_0,
         insn.x_pad_1,
+        insn.is_pad_min_value,
         y_offset_0,
         y_offset_1);
   } else if (insn.memory_type == VTA_MEM_ID_WGT) {
@@ -371,7 +416,8 @@ void alu(
         for (int i = 0; i < VTA_BATCH; i++) {
           for (int b = 0; b < VTA_BLOCK_OUT; b++) {
             // Read in operands
-            acc_T src_0 = dst_tensor[i][b];
+            acc_T src_0 = insn.use_imm ? src_tensor[i][b] : dst_tensor[i][b];
+            // acc_T src_0 = dst_tensor[i][b];
             acc_T src_1 = insn.use_imm ? (acc_T) insn.imm : src_tensor[i][b];
             aluop_shr_arg_T shft_by = src_1.range(VTA_SHR_ARG_BIT_WIDTH - 1, 0);
             aluop_mul_arg_T mul_by = src_1.range(VTA_MUL_ARG_BIT_WIDTH - 1, 0);
@@ -382,15 +428,34 @@ void alu(
                   (insn.alu_opcode == VTA_ALU_OPCODE_MIN ? src_1 : src_0);
               dst_tensor[i][b] = mix_val;
               o_tensor[i][b] = (out_T) mix_val.range(VTA_OUT_WIDTH - 1, 0);
+            } else if (insn.alu_opcode == VTA_ALU_OPCODE_CLP) {
+              // Compute Clip
+              acc_T src_2 = -1 * src_1;
+              acc_T clp_val = src_0 > src_1 ? src_1 : (src_0 < src_2 ? src_2 : src_0);
+              dst_tensor[i][b] = clp_val;
+              o_tensor[i][b] = (out_T) clp_val.range(VTA_OUT_WIDTH - 1, 0);
+            } else if (insn.alu_opcode == VTA_ALU_OPCODE_MOV) {
+              dst_tensor[i][b] = src_1;
+              o_tensor[i][b] = (out_T) src_1.range(VTA_OUT_WIDTH - 1, 0);
             } else if (insn.alu_opcode == VTA_ALU_OPCODE_ADD) {
               // Compute Sum
               acc_T add_val =
                   src_0.range(VTA_ACC_WIDTH - 1, 0) + src_1.range(VTA_ACC_WIDTH - 1, 0);
               dst_tensor[i][b] = add_val;
               o_tensor[i][b] = (out_T) add_val.range(VTA_OUT_WIDTH - 1, 0);
+            } else if (insn.alu_opcode == VTA_ALU_OPCODE_MUL) {
+              // Compute Mul
+              acc_T mul_val =
+                  src_0.range(VTA_INP_WIDTH - 1, 0) * src_1.range(VTA_INP_WIDTH - 1, 0);
+              dst_tensor[i][b] = mul_val;
+              #ifndef NO_SIM
+              // Only for test purposes.
+              o_tensor[i][b] = (out_T) mul_val.range(VTA_OUT_WIDTH - 1, 0);
+              #endif // NO_SIM
             } else if (insn.alu_opcode == VTA_ALU_OPCODE_SHR) {
               // Compute Shift Right
-              acc_T shr_val = src_0 >> shft_by;
+              // acc_T shr_val = src_0 >> shft_by;
+              acc_T shr_val = shft_by > 0 ? src_0 >> shft_by : src_0 << (0 - shft_by);
               dst_tensor[i][b] = shr_val;
               o_tensor[i][b] = (out_T) shr_val.range(VTA_OUT_WIDTH - 1, 0);
             }
@@ -474,10 +539,12 @@ PRAGMA_HLS(HLS INTERFACE s_axilite port = done bundle = CONTROL_BUS offset = VTA
     // Initialize indices
     memop_sram_T sram_idx = insn.mem.sram_base;
     memop_dram_T dram_idx = insn.mem.dram_base;
-    memop_sram_T x_width =
-        (insn.mem.x_pad_0 + insn.mem.x_size + insn.mem.x_pad_1);
+    // Padding
+    memop_sram_T x_width = (insn.mem.x_pad_0 + insn.mem.x_size + insn.mem.x_pad_1);
     memop_sram_T y_offset_0 = x_width * insn.mem.y_pad_0;
+#pragma HLS RESOURCE variable = y_offset_0 core = Mul_LUT latency = 4
     memop_sram_T y_offset_1 = x_width * insn.mem.y_pad_1;
+#pragma HLS RESOURCE variable = y_offset_1 core = Mul_LUT latency = 4
 
     if (insn.mem.memory_type == VTA_MEM_ID_UOP) {
       // Perform data transfer
@@ -486,7 +553,7 @@ PRAGMA_HLS(HLS INTERFACE s_axilite port = done bundle = CONTROL_BUS offset = VTA
              insn.mem.x_size * sizeof(uop_T));
     } else if (insn.mem.memory_type == VTA_MEM_ID_ACC) {
       // Perform data transfer from DRAM
-      load_pad_2d<bus_T, ACC_MAT_AXI_RATIO, VTA_ACC_ELEM_BYTES>(
+      load_pad_2d<bus_T, ACC_MAT_AXI_RATIO, VTA_ACC_ELEM_BYTES, VTA_ACC_WIDTH>(
           biases,
           acc_mem,
           sram_idx,
@@ -496,6 +563,7 @@ PRAGMA_HLS(HLS INTERFACE s_axilite port = done bundle = CONTROL_BUS offset = VTA
           insn.mem.x_stride,
           insn.mem.x_pad_0,
           insn.mem.x_pad_1,
+          insn.mem.is_pad_min_value,
           y_offset_0,
           y_offset_1);
     }

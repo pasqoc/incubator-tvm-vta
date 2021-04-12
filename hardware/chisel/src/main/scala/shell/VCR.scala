@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.shell
 
 import chisel3._
@@ -28,13 +30,16 @@ import vta.interface.axi._
 /** VCR parameters.
  *
  * These parameters are used on VCR interfaces and modules.
+ * There are nUCnt user CRs used to record program invariants
+ * such as count of operations, memory events, as well as
+ * performance monitoring events.
  */
 case class VCRParams() {
   val nCtrl = 1
   val nECnt = 1
   val nVals = 1
   val nPtrs = 6
-  val nUCnt = 1
+  val nUCnt = 14
   val regBits = 32
 }
 

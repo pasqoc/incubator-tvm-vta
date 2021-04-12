@@ -15,6 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Modified by contributors from Intel Labs
+
 # Command line arguments:
 # Arg 1: path to vta root
 # Arg 2: path of config param script
@@ -37,6 +39,7 @@ source $vta_config
 
 # C define flags that we want to pass to the compiler
 set cflags $CFLAGS
+set cflags "$cflags -std=c++11"
 
 # Get the VTA configuration paramters
 set ::device $FPGA_DEVICE

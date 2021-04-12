@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.core
 
 import chisel3._
@@ -40,13 +42,13 @@ trait ISAConstants {
   val M_STRIDE_BITS = 16
   val M_PAD_BITS = 4
 
-  val C_UOP_BGN_BITS = 13
-  val C_UOP_END_BITS = 14
+//  val C_UOP_BGN_BITS = 13
+//  val C_UOP_END_BITS = 14
   val C_ITER_BITS = 14
-  val C_AIDX_BITS = 11
-  val C_IIDX_BITS = 11
-  val C_WIDX_BITS = 10
-  val C_ALU_DEC_BITS = 2 // FIXME: there should be a SHL and SHR instruction
+//  val C_AIDX_BITS = 11
+//  val C_IIDX_BITS = 11
+//  val C_WIDX_BITS = 10
+  val C_ALU_DEC_BITS = 3 // FIXME: there should be a SHL and SHR instruction
   val C_ALU_OP_BITS = 3
   val C_ALU_IMM_BITS = 16
 
@@ -60,7 +62,7 @@ trait ISAConstants {
   val OP_A = 4.asUInt(OP_BITS.W)
   val OP_X = 5.asUInt(OP_BITS.W)
 
-  val ALU_OP_NUM = 5
+  val ALU_OP_NUM = 8
   val ALU_OP = Enum(ALU_OP_NUM)
 
   val M_ID_U = 0.asUInt(M_ID_BITS.W)
@@ -144,5 +146,8 @@ object ISA {
   def VMAX = alu("maxpool")
   def VADD = alu("add")
   def VSHX = alu("shift")
+  def VCLP = alu("clip")
+  def VMOV = alu("move")
+  def VMUL = alu("mul")
   def FNSH = finish
 }

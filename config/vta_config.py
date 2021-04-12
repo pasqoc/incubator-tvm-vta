@@ -15,6 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 """VTA config tool"""
+
+# Modified by contributors from Intel Labs
+
 import os
 import sys
 import json
@@ -118,6 +121,8 @@ def main():
                         help="save config json to file")
     parser.add_argument("--target", action="store_true",
                         help="print the target")
+    parser.add_argument("--hw-ver", action="store_true",
+                        help="print the hardware version")
     parser.add_argument("--cfg-str", action="store_true",
                         help="print the configuration string")
     parser.add_argument("--get-inp-mem-banks", action="store_true",
@@ -184,22 +189,53 @@ def main():
     curr_path = os.path.dirname(
         os.path.abspath(os.path.expanduser(__file__)))
 
-    path_list = [
-        "vta_config.json", os.path.join(curr_path, "vta_config.json")
+    # Enable split parameter/target configuration for when the same
+    # parameters are applied to multiple sim, hw targets.
+    # For backward compatibility vta_target is not needed if target is
+    # included in config json files. If present, the content of target
+    # files overrides any settings in config files.
+    jconfig = f'{os.environ.get("VTA_CONFIG")}.json'
+    config_path_list = [
+        os.path.join(curr_path, jconfig),
+        "vta_config.json", 
+        os.path.join(curr_path, "vta_config.json")
     ]
+    if args.use_cfg:
+        config_path_list = [args.use_cfg]
+
+    config_ok_path_list = [p for p in config_path_list if os.path.exists(p)]
+    if not config_ok_path_list:
+        raise RuntimeError("Cannot find config in %s" % str(config_path_list))
+
+    cfg = json.load(open(config_ok_path_list[0]))
 
     if args.use_cfg:
-        path_list = [args.use_cfg]
+        tgt_path = os.path.dirname(args.use_cfg)
+    else:
+        tgt_path = curr_path
 
-    ok_path_list = [p for p in path_list if os.path.exists(p)]
-    if not ok_path_list:
-        raise RuntimeError("Cannot find config in %s" % str(path_list))
+    jtarget = f'{os.environ.get("VTA_TARGET")}_target.json'
+    target_path_list = [
+        os.path.join(tgt_path, jtarget),
+        "vta_target.json", 
+        os.path.join(tgt_path, "vta_target.json")
+    ]
 
-    cfg = json.load(open(ok_path_list[0]))
+    target_ok_path_list = [p for p in target_path_list if os.path.exists(p)]
+    if target_ok_path_list:
+        tgt = json.load(open(target_ok_path_list[0]))
+        cfg.update(tgt)
+
+    if 'TARGET' not in cfg or 'HW_VER' not in cfg:
+        raise RuntimeError("Cannot find target in %s" % str(target_path_list))
+
     pkg = pkg_config(cfg)
 
     if args.target:
         print(pkg.TARGET)
+
+    if args.hw_ver:
+        print(pkg.HW_VER.replace('.', '_'))
 
     if args.defs:
         print(" ".join(pkg.macro_defs))

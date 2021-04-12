@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package unittest
 // taken from https://github.com/freechipsproject/chisel-testers
 
@@ -44,12 +46,12 @@ object Launcher {
   val tests = Map(
     "mvm" -> { (manager: TesterOptionsManager) =>
       Driver.execute(() => new MatrixVectorMultiplication, manager) {
-        (c) => new TestMatrixVectorMultiplication(c)
+        (c) => new MatrixVectorMultiplicationTester(c)
       }
     },
 		"alu" -> { (manager: TesterOptionsManager) =>
       Driver.execute(() => new AluVector, manager) {
-        (c) => new TestAluVector(c)
+        (c) => new AluVectorTester(c)
       }
     }
   )

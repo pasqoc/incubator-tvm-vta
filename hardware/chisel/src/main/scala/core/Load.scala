@@ -17,12 +17,16 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.core
 
 import chisel3._
 import chisel3.util._
 import vta.util.config._
+import vta.util._
 import vta.shell._
+import vta.verif.{TraceMgr => trace_mgr}
 
 /** Load.
  *
@@ -42,12 +46,17 @@ class Load(debug: Boolean = false)(implicit p: Parameters) extends Module {
     val vme_rd = Vec(2, new VMEReadMaster)
     val inp = new TensorClient(tensorType = "inp")
     val wgt = new TensorClient(tensorType = "wgt")
+    val inp_ld_event = Output(Bool())
+    val wgt_ld_event = Output(Bool())
+    val inp_stall_event = Output(Bool())
+    val wgt_stall_event = Output(Bool())
+    val idle_ld_event = Output(Bool())
   })
   val sIdle :: sSync :: sExe :: Nil = Enum(3)
   val state = RegInit(sIdle)
 
   val s = Module(new Semaphore(counterBits = 8, counterInitValue = 0))
-  val inst_q = Module(new Queue(UInt(INST_BITS.W), p(CoreKey).instQueueEntries))
+  val inst_q = Module(new SyncQueueVTA(UInt(INST_BITS.W), p(CoreKey).instQueueEntries))
 
   val dec = Module(new LoadDecode)
   dec.io.inst := inst_q.io.deq.bits
@@ -98,10 +107,51 @@ class Load(debug: Boolean = false)(implicit p: Parameters) extends Module {
     io.vme_rd(i) <> tensorLoad(i).io.vme_rd
   }
 
+  // events
+  io.inp_ld_event := io.vme_rd(0).data.fire()
+  io.wgt_ld_event := io.vme_rd(1).data.fire()
+  io.inp_stall_event := io.vme_rd(0).data.ready && !io.vme_rd(0).data.valid ||
+    io.vme_rd(0).cmd.valid  && !io.vme_rd(0).cmd.ready
+  io.wgt_stall_event := io.vme_rd(1).data.ready && !io.vme_rd(1).data.valid ||
+    io.vme_rd(1).cmd.valid  && !io.vme_rd(1).cmd.ready
+  io.idle_ld_event := state === sIdle
+
   // semaphore
   s.io.spost := io.i_post
   s.io.swait := dec.io.pop_next & (state === sIdle & start)
   io.o_post := dec.io.push_next & ((state === sExe & done) | (state === sSync))
+
+  // trace
+  if (p(VerifKey).trace) {
+    when(state === sIdle && start) {
+      when(dec.io.isSync) {
+        trace_mgr.Event("EXE", "LNOP %x\n", dec.io.inst)
+      }.elsewhen(dec.io.isInput) {
+        trace_mgr.Event("EXE", "LINP %x\n", dec.io.inst)
+      }.elsewhen(dec.io.isWeight) {
+        trace_mgr.Event("EXE", "LWGT %x\n", dec.io.inst)
+      }
+    }.elsewhen(state === sExe && done) {
+      when(dec.io.isInput) {
+        trace_mgr.Event("RET", "LINP %x\n", dec.io.inst)
+      }.elsewhen(dec.io.isWeight) {
+        trace_mgr.Event("RET", "LWGT %x\n", dec.io.inst)
+      }
+    }.elsewhen(state === sSync) {
+      trace_mgr.Event("RET", "LNOP %x\n", dec.io.inst)
+    }
+    when(state === sExe) {
+      when(dec.io.isInput) {
+        when(io.inp_stall_event) {
+          trace_mgr.Event("STALL", "LINP %x\n", dec.io.inst)
+        }
+      }.elsewhen(dec.io.isWeight) {
+        when(io.wgt_stall_event) {
+          trace_mgr.Event("STALL", "LWGT %x\n", dec.io.inst)
+        }
+      }
+    }
+  }
 
   // debug
   if (debug) {

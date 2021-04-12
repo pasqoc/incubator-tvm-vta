@@ -15,6 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Modified by contributors from Intel Labs
+
 ifeq (, $(shell which verilator))
  $(error "No Verilator in $(PATH), consider doing apt-get install verilator")
 endif
@@ -32,12 +34,15 @@ ifeq (, $(VERILATOR_INC_DIR))
 	endif
 endif
 
-CONFIG = DefaultDe10Config
+CONFIG = JSONDe10Config
 TOP = VTA
 TOP_TEST = Test
 BUILD_NAME = build
 # Set USE_TRACE = 1 to generate a trace during simulation.
 USE_TRACE = 0
+# Hierarchical depth of tracing, empty means don't set the option to verilator
+USE_TRACE_DEPTH =
+
 # With USE_TRACE = 1, default trace format is VCD.
 # Set USE_TRACE_FST = 1 to use the FST format.
 # Note that although FST is around two orders of magnitude smaller than VCD
@@ -49,6 +54,14 @@ USE_TRACE_FST = 0
 # This will significantly increase the trace size and should only be used
 # on a per need basis for difficult debug problems.
 USE_TRACE_DETAILED = 0
+# With USE_TRACE = 1, a non empty USE_TRACE_PATH overrides the location
+# of the produced trace file.
+USE_TRACE_PATH =
+# With CHISEL_TRACE = 1, registered events in scala are traced and translated
+# into fwrite calls in verilog during simulation. If a trace mode is selected
+# in the verification module these events will be included in a trace file.
+# To disable trace calls in case of simulation slowdown set to CHISEL_TRACE to 0.
+export CHISEL_TRACE = 0
 USE_THREADS = 0
 VTA_LIBNAME = libvta_hw
 UNITTEST_NAME = all
@@ -125,6 +138,9 @@ cxx_objs = $(verilator_build_dir)/verilated.o $(verilator_build_dir)/verilated_d
 
 ifneq ($(USE_TRACE), 0)
 	cxx_flags += -DVM_TRACE=1
+	ifneq ($(USE_TRACE_DEPTH),)
+		verilator_opt += --trace-depth $(USE_TRACE_DEPTH)
+	endif
 	ifeq ($(USE_TRACE_FST), 1)
 		cxx_flags += -DVM_TRACE_FST
 		verilator_opt += --trace-fst
@@ -134,11 +150,16 @@ ifneq ($(USE_TRACE), 0)
 	ifeq ($(USE_TRACE_DETAILED), 1)
 		verilator_opt += --trace-underscore --trace-structs
 	endif
+	ifneq ($(USE_TRACE_PATH),)
+		TRACE_STEM=$(USE_TRACE_PATH)/$(TOP_TEST)
+	else
+		TRACE_STEM=$(verilator_build_dir)/$(TOP_TEST)
+	endif
 	ifeq ($(USE_TRACE_FST), 1)
-		cxx_flags += -DTSIM_TRACE_FILE=$(verilator_build_dir)/$(TOP_TEST).fst
+		cxx_flags += -DTSIM_TRACE_FILE=$(TRACE_STEM).fst
 		cxx_objs += $(verilator_build_dir)/verilated_fst_c.o
 	else
-		cxx_flags += -DTSIM_TRACE_FILE=$(verilator_build_dir)/$(TOP_TEST).vcd
+		cxx_flags += -DTSIM_TRACE_FILE=$(TRACE_STEM).vcd
 		cxx_objs += $(verilator_build_dir)/verilated_vcd_c.o
 	endif
 else
@@ -152,6 +173,7 @@ ifneq ($(USE_THREADS), 0)
 endif
 
 VPATH = $(VERILATOR_INC_DIR):$(verilator_build_dir):$(VTA_HW_PATH)/hardware/dpi
+SSRC := $(wildcard $(VTA_HW_PATH)/hardware/chisel/src/main/scala/core/*.scala)
 
 # The following is to be consistent with cmake
 ifeq ($(shell uname), Darwin)
@@ -178,22 +200,28 @@ $(lib_path): $(verilator_build_dir)/V$(TOP_TEST).cpp $(cxx_objs)
 	for f in $(shell find $(verilator_build_dir)/*.cpp); do \
 		$(CXX) -fPIC $(cxx_flags) -c $${f} -o $${f}.o ; \
 	done
-	$(CXX) $(ld_flags) $(cxx_flags) $(cxx_objs) $(patsubst %.cpp,%.cpp.o,$(shell find $(verilator_build_dir)/*.cpp)) -o $@
+	$(CXX) $(ld_flags) $(cxx_flags) $(cxx_objs) \
+	$(patsubst %.cpp,%.cpp.o,$(shell find $(verilator_build_dir)/*.cpp)) -o $@
 
 verilator: $(verilator_build_dir)/V$(TOP_TEST).cpp
 $(verilator_build_dir)/V$(TOP_TEST).cpp: $(chisel_build_dir)/$(TOP_TEST).$(CONFIG).v
-	verilator $(verilator_opt) $<
+	verilator $(verilator_opt) $< && \
+	if [ -n "$(CHISEL_TRACE)" ]; then \
+	  sed -i '/#include "verilated_dpi.h"/a #include "../vta/runtime/trace_mgr.h"' $@ && \
+	  sed -zi 's/VL_FWRITEF([^,]\+,\([^;]\+\);/std::string s=VL_SFORMATF_NX(\1; \
+	  vta::trace_mgr.VL_EVENT(s);/g' $@; \
+	fi
 
 verilog: $(chisel_build_dir)/$(TOP).$(CONFIG).v
-$(chisel_build_dir)/$(TOP).$(CONFIG).v:
+$(chisel_build_dir)/$(TOP).$(CONFIG).v: $(SSRC)
 	sbt 'runMain vta.$(CONFIG) --target-dir $(chisel_build_dir) --top-name $(TOP).$(CONFIG)'
 
 verilog_test: $(chisel_build_dir)/$(TOP_TEST).$(CONFIG).v
-$(chisel_build_dir)/$(TOP_TEST).$(CONFIG).v:
+$(chisel_build_dir)/$(TOP_TEST).$(CONFIG).v: $(SSRC)
 	sbt 'runMain vta.$(config_test) --target-dir $(chisel_build_dir) --top-name $(TOP_TEST).$(CONFIG)'
 
 unittest:
-	sbt 'test:runMain unittest.Launcher $(UNITTEST_NAME)'
+	sbt test
 
 clean:
 	-rm -rf target project/target project/project test_run_dir

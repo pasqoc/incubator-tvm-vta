@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 /*!
  * \file test_lib.cpp
  * \brief Test library for the VTA design simulation and driver tests.
@@ -130,18 +132,37 @@ const char* getOpcodeString(int opcode, bool use_imm) {
     } else {
       return "max";
     }
+  } else if (opcode == VTA_ALU_OPCODE_CLP) {
+    if (use_imm) {
+      return "clp imm";
+    } else {
+      return "clp";
+    }
+  } else if (opcode == VTA_ALU_OPCODE_MOV) {
+    if (use_imm) {
+      return "mov imm";
+    } else {
+      return "mov";
+    }
   } else if (opcode == VTA_ALU_OPCODE_ADD) {
     if (use_imm) {
       return "add imm";
     } else {
       return "add";
     }
+  } else if (opcode == VTA_ALU_OPCODE_MUL) {
+    if (use_imm) {
+      return "mul imm";
+    } else {
+      return "mul";
+    }
   } else if (opcode == VTA_ALU_OPCODE_SHR) {
-    return "shr";
+    if (use_imm) {
+      return "shr imm";
+    } else {
+      return "shr";
+    }
   }
-  // else if (opcode == VTA_ALU_OPCODE_MUL) {
-  //   return "mul";
-  // }
   return "unknown op";
 }
 
@@ -280,8 +301,8 @@ void freeBuffer(void * buffer) {
 }
 
 VTAGenericInsn get2DLoadStoreInsn(int opcode, int type, int sram_offset, int dram_offset,
-    int y_size, int x_size, int x_stride, int y_pad, int x_pad, int pop_prev_dep, int pop_next_dep,
-    int push_prev_dep, int push_next_dep) {
+    int y_size, int x_size, int x_stride, int y_pad, int x_pad, int is_pad_min, 
+    int pop_prev_dep, int pop_next_dep, int push_prev_dep, int push_next_dep) {
   // Converter
   union VTAInsn converter;
   // Memory instruction initialization
@@ -301,6 +322,7 @@ VTAGenericInsn get2DLoadStoreInsn(int opcode, int type, int sram_offset, int dra
   insn.y_pad_1 = y_pad;
   insn.x_pad_0 = x_pad;
   insn.x_pad_1 = x_pad;
+  insn.is_pad_min_value = is_pad_min;
   converter.mem = insn;
   return converter.generic;
 }
@@ -326,6 +348,7 @@ VTAGenericInsn get1DLoadStoreInsn(int opcode, int type, int sram_offset, int dra
   insn.y_pad_1 = 0;
   insn.x_pad_0 = 0;
   insn.x_pad_1 = 0;
+  insn.is_pad_min_value = 0;
   converter.mem = insn;
   return converter.generic;
 }
@@ -451,16 +474,16 @@ VTAUop * getCopyUops(int y_size, int x_size, int uop_compression) {
     int uop_idx = 0;
     for (int i = 0; i < y_size; i++) {
       for (int j = 0; j < x_size; j++) {
-        uop_buf[uop_idx].dst_idx = i * x_size + j;
-        uop_buf[uop_idx].src_idx = 0;
-        uop_buf[uop_idx].wgt_idx = 0;
+        uop_buf[uop_idx].gem.dst_idx = i * x_size + j;
+        uop_buf[uop_idx].gem.src_idx = 0;
+        uop_buf[uop_idx].gem.wgt_idx = 0;
         uop_idx++;
       }
     }
   } else {
-    uop_buf[0].dst_idx = 1;
-    uop_buf[0].src_idx = 0;
-    uop_buf[0].wgt_idx = 0;
+    uop_buf[0].gem.dst_idx = 1;
+    uop_buf[0].gem.src_idx = 0;
+    uop_buf[0].gem.wgt_idx = 0;
   }
 
   return uop_buf;
@@ -484,18 +507,18 @@ VTAUop * getGEMMUops(int batch, int in_feat, int out_feat, bool uop_compression,
     for (int i = 0; i < batch; i++) {
       for (int j = 0; j < in_feat; j++) {
         for (int k = 0; k < out_feat; k++) {
-          uop_buf[uop_idx].dst_idx = i * out_feat + k;
-          uop_buf[uop_idx].src_idx = i * in_feat + j;
-          uop_buf[uop_idx].wgt_idx = k * in_feat + j;
+          uop_buf[uop_idx].gem.dst_idx = i * out_feat + k;
+          uop_buf[uop_idx].gem.src_idx = i * in_feat + j;
+          uop_buf[uop_idx].gem.wgt_idx = k * in_feat + j;
           uop_idx++;
         }
       }
     }
   } else {
     for (int i = 0; i < batch; i++) {
-      uop_buf[i].dst_idx = i * out_feat;
-      uop_buf[i].src_idx = i * in_feat;
-      uop_buf[i].wgt_idx = 0;
+      uop_buf[i].gem.dst_idx = i * out_feat;
+      uop_buf[i].gem.src_idx = i * in_feat;
+      uop_buf[i].gem.wgt_idx = 0;
     }
   }
 
@@ -505,18 +528,18 @@ VTAUop * getGEMMUops(int batch, int in_feat, int out_feat, bool uop_compression,
       for (int i = 0; i < batch; i++) {
         for (int j = 0; j < in_feat; j++) {
           for (int k = 0; k < out_feat; k++) {
-            uop_buf[uop_idx].dst_idx = i * out_feat + k;
-            uop_buf[uop_idx].src_idx = batch * in_feat + i * in_feat + j;
-            uop_buf[uop_idx].wgt_idx = out_feat * in_feat + k * in_feat + j;
+            uop_buf[uop_idx].gem.dst_idx = i * out_feat + k;
+            uop_buf[uop_idx].gem.src_idx = batch * in_feat + i * in_feat + j;
+            uop_buf[uop_idx].gem.wgt_idx = out_feat * in_feat + k * in_feat + j;
             uop_idx++;
           }
         }
       }
     } else {
       for (int i = 0; i < batch; i++) {
-        uop_buf[batch+i].dst_idx = i * out_feat;
-        uop_buf[batch+i].src_idx = batch * in_feat + i * in_feat;
-        uop_buf[batch+i].wgt_idx = out_feat * in_feat;
+        uop_buf[batch+i].gem.dst_idx = i * out_feat;
+        uop_buf[batch+i].gem.src_idx = batch * in_feat + i * in_feat;
+        uop_buf[batch+i].gem.wgt_idx = out_feat * in_feat;
       }
     }
   }
@@ -537,12 +560,12 @@ VTAUop * getMapALUUops(int vector_size, bool uop_compression) {
 
   if (!uop_compression) {
     for (int i = 0; i < vector_size; i++) {
-      uop_buf[i].dst_idx = i;
-      uop_buf[i].src_idx = vector_size + i;
+      uop_buf[i].alu.dst_idx = i;
+      uop_buf[i].alu.src_idx = vector_size + i;
     }
   } else {
-    uop_buf[0].dst_idx = 0;
-    uop_buf[0].src_idx = vector_size;
+    uop_buf[0].alu.dst_idx = 0;
+    uop_buf[0].alu.src_idx = vector_size;
   }
 
   return uop_buf;
@@ -610,11 +633,12 @@ void printInstruction(int num_insn, VTAGenericInsn *insns) {
              static_cast<int>(c.mem.y_size),
              static_cast<int>(c.mem.y_pad_0),
              static_cast<int>(c.mem.y_pad_1));
-      printf("\tx: size=%d, stride=%d, pad=[%d, %d]\n",
+      printf("\tx: size=%d, stride=%d, pad=[%d, %d], min=%d\n",
              static_cast<int>(c.mem.x_size),
              static_cast<int>(c.mem.x_stride),
              static_cast<int>(c.mem.x_pad_0),
-             static_cast<int>(c.mem.x_pad_1));
+             static_cast<int>(c.mem.x_pad_1),
+             static_cast<int>(c.mem.is_pad_min_value));
       if (c.mem.opcode == VTA_OPCODE_STORE) {
         if (c.mem.pop_prev_dep) g2s_queue--;
         if (c.mem.push_prev_dep) s2g_queue++;
@@ -702,7 +726,7 @@ void printMicroOp(int num_uop, VTAUop *uops) {
   for (int i = 0; i < num_uop; i++) {
     // Read micro-op
     printf("DEBUG - UOP %u: ", i);
-    printf("acc=%u, inp= %u, wgt=%u\n", uops[i].dst_idx, uops[i].src_idx, uops[i].wgt_idx);
+    printf("acc=%u, inp= %u, wgt=%u\n", uops[i].gem.dst_idx, uops[i].gem.src_idx, uops[i].gem.wgt_idx);
   }
 }
 
@@ -721,7 +745,8 @@ int alu_test(int opcode, bool use_imm, int batch, int vector_size, bool uop_comp
   // Input/output elements in each transfer
   int tx_size = vector_size / VTA_BLOCK_OUT;
   // Number of input sets to be generated
-  int input_sets = (use_imm) ? 1 : 2;
+  // int input_sets = (use_imm) ? 1 : 2;
+  int input_sets = 2;
   // Make sure we don't exceed buffer bounds
   assert(uop_size <= VTA_UOP_BUFF_DEPTH);
   assert(tx_size * input_sets <= VTA_ACC_BUFF_DEPTH);
@@ -735,7 +760,16 @@ int alu_test(int opcode, bool use_imm, int batch, int vector_size, bool uop_comp
     } else if (opcode == VTA_ALU_OPCODE_MAX) {
       immediate[b] = static_cast<acc_T>(
           rand_r(&globalSeed) % (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 1)) - (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 2)));
+    } else if (opcode == VTA_ALU_OPCODE_CLP) {
+      immediate[b] = static_cast<acc_T>(
+          rand_r(&globalSeed) % (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 1)) - (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 2)));
+    } else if (opcode == VTA_ALU_OPCODE_MOV) {
+      immediate[b] = static_cast<acc_T>(
+          rand_r(&globalSeed) % (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 1)) - (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 2)));
     } else if (opcode == VTA_ALU_OPCODE_ADD) {
+      immediate[b] = static_cast<acc_T>(
+          rand_r(&globalSeed) % (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 1)) - (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 2)));
+    } else if (opcode == VTA_ALU_OPCODE_MUL) {
       immediate[b] = static_cast<acc_T>(
           rand_r(&globalSeed) % (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 1)) - (1LL << (VTA_ALUOP_IMM_BIT_WIDTH - 2)));
     } else if (opcode == VTA_ALU_OPCODE_SHR) {
@@ -765,6 +799,7 @@ int alu_test(int opcode, bool use_imm, int batch, int vector_size, bool uop_comp
         tx_size * input_sets,              // x stride
         0,                                 // y pad
         0,                                 // x pad
+        0,                                 // pad is min value
         0,                                 // pop prev dep
         b > 0,                             // pop next dep
         0,                                 // push prev dep
@@ -789,6 +824,7 @@ int alu_test(int opcode, bool use_imm, int batch, int vector_size, bool uop_comp
         tx_size,                           // x stride
         0,                                 // y pad
         0,                                 // x pad
+        0,                                 // pad is min value
         1,                                 // pop prev dep
         0,                                 // pop next dep
         1,                                 // push prev dep
@@ -814,9 +850,18 @@ int alu_test(int opcode, bool use_imm, int batch, int vector_size, bool uop_comp
       } else if (opcode == VTA_ALU_OPCODE_MAX) {
         inputs[i][j] = static_cast<acc_T>(
             rand_r(&globalSeed) % (1LL << (VTA_INP_WIDTH - 1)) - (1LL << (VTA_INP_WIDTH - 2)));
+      } else if (opcode == VTA_ALU_OPCODE_CLP) {
+        inputs[i][j] = static_cast<acc_T>(
+            rand_r(&globalSeed) % (1LL << (VTA_INP_WIDTH - 1)) - (1LL << (VTA_INP_WIDTH - 2)));
+      } else if (opcode == VTA_ALU_OPCODE_MOV) {
+        inputs[i][j] = static_cast<acc_T>(
+            rand_r(&globalSeed) % (1LL << (VTA_INP_WIDTH - 1)) - (1LL << (VTA_INP_WIDTH - 2)));
       } else if (opcode == VTA_ALU_OPCODE_ADD) {
         inputs[i][j] = static_cast<acc_T>(
             rand_r(&globalSeed) % (1LL << (VTA_INP_WIDTH - 2)) - (1LL << (VTA_INP_WIDTH - 3)));
+      } else if (opcode == VTA_ALU_OPCODE_MUL) {
+        inputs[i][j] = static_cast<acc_T>(
+            rand_r(&globalSeed) % (1LL << (VTA_INP_WIDTH - 1)) - (1LL << (VTA_INP_WIDTH - 2)));
       } else if (opcode == VTA_ALU_OPCODE_SHR) {
         inputs[i][j] = static_cast<acc_T>(
             rand_r(&globalSeed) % (1LL << (VTA_SHR_ARG_BIT_WIDTH - 1)) - (1LL << (VTA_SHR_ARG_BIT_WIDTH - 2)));
@@ -835,19 +880,32 @@ int alu_test(int opcode, bool use_imm, int batch, int vector_size, bool uop_comp
         if (!use_imm) {
           out_val = inputs[i][j] < src_val ? inputs[i][j] : src_val;
         } else {
-          out_val = inputs[i][j] < imm_val ? inputs[i][j] : imm_val;
+          out_val = src_val < imm_val ? src_val : imm_val;
         }
       } else if (opcode == VTA_ALU_OPCODE_MAX) {
         if (!use_imm) {
           out_val = inputs[i][j] > src_val ? inputs[i][j] : src_val;
         } else {
-          out_val = inputs[i][j] > imm_val ? inputs[i][j] : imm_val;
+          out_val = inputs[i][j] > imm_val ? src_val : imm_val;
         }
+      } else if (opcode == VTA_ALU_OPCODE_CLP) {
+        acc_T src_0 = use_imm ? imm_val : src_val;
+        acc_T src_1 = -1 * src_0;
+        acc_T dst = use_imm ? inputs[i][j + vector_size] : inputs[i][j];
+        out_val = dst > src_0 ? src_0 : (dst < src_1 ? src_1 : dst);
+      } else if (opcode == VTA_ALU_OPCODE_MOV) {
+        out_val = use_imm ? imm_val : src_val;
       } else if (opcode == VTA_ALU_OPCODE_ADD) {
         if (!use_imm) {
           out_val = inputs[i][j] + src_val;
         } else {
-          out_val = inputs[i][j] + imm_val;
+          out_val = src_val + imm_val;
+        }
+      } else if (opcode == VTA_ALU_OPCODE_MUL) {
+        if (!use_imm) {
+          out_val = inputs[i][j].range(7, 0) * src_val.range(7, 0);
+        } else {
+          out_val = src_val.range(7, 0) * imm_val.range(7, 0);
         }
       } else if (opcode == VTA_ALU_OPCODE_SHR) {
         if (!use_imm) {
@@ -858,9 +916,9 @@ int alu_test(int opcode, bool use_imm, int batch, int vector_size, bool uop_comp
           }
         } else {
           if (imm_val >= 0) {
-            out_val = inputs[i][j] >> imm_val;
+            out_val = src_val >> imm_val;
           } else {
-            out_val = inputs[i][j] << (0 - imm_val);
+            out_val = src_val << (0 - imm_val);
           }
         }
       }
@@ -1002,6 +1060,7 @@ int blocked_gemm_test(int batch, int channels, int block, bool uop_compression,
           out_feat / VTA_BLOCK_OUT,                           // x stride
           0,                                                  // y pad
           0,                                                  // x pad
+          0,                                                  // pad is min value
           0,                                                  // pop prev dep
           (i > 0 || j > 0),                                   // pop next dep
           (virtual_threads == 1),                             // push prev dep
@@ -1032,6 +1091,7 @@ int blocked_gemm_test(int batch, int channels, int block, bool uop_compression,
               in_feat / VTA_BLOCK_IN,                         // x stride
               0,                                              // y pad
               0,                                              // x pad
+              0,                                              // pad is min value
               0,                                              // pop prev dep
               pop,                                            // pop next dep
               0,                                              // push prev dep
@@ -1047,6 +1107,7 @@ int blocked_gemm_test(int batch, int channels, int block, bool uop_compression,
               in_feat / VTA_BLOCK_IN,                         // x stride
               0,                                              // y pad
               0,                                              // x pad
+              0,                                              // pad is min value
               0,                                              // pop prev dep
               0,                                              // pop next dep
               0,                                              // push prev dep
@@ -1075,6 +1136,7 @@ int blocked_gemm_test(int batch, int channels, int block, bool uop_compression,
           out_feat / VTA_BLOCK_OUT,                           // x stride
           0,                                                  // y pad
           0,                                                  // x pad
+          0,                                                  // pad is min value
           1,                                                  // pop prev dep
           0,                                                  // pop next dep
           1,                                                  // pop prev dep

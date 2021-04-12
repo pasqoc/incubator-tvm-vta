@@ -17,10 +17,12 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.shell
 
 import chisel3._
-import chisel3.experimental.MultiIOModule
+import chisel3.MultiIOModule
 import vta.util.config._
 import vta.interface.axi._
 import vta.shell._
@@ -38,7 +40,7 @@ class VTAHost(implicit p: Parameters) extends Module {
   })
   val host_dpi = Module(new VTAHostDPI)
   val host_axi = Module(new VTAHostDPIToAXI)
-  host_dpi.io.reset := reset
+  host_dpi.io.reset := reset.toBool
   host_dpi.io.clock := clock
   host_axi.io.dpi <> host_dpi.io.dpi
   io.axi <> host_axi.io.axi
@@ -56,7 +58,7 @@ class VTAMem(implicit p: Parameters) extends Module {
   })
   val mem_dpi = Module(new VTAMemDPI)
   val mem_axi = Module(new VTAMemDPIToAXI)
-  mem_dpi.io.reset := reset
+  mem_dpi.io.reset := reset.toBool
   mem_dpi.io.clock := clock
   mem_dpi.io.dpi <> mem_axi.io.dpi
   mem_axi.io.axi <> io.axi
@@ -72,7 +74,7 @@ class VTAMem(implicit p: Parameters) extends Module {
 class VTASim(implicit p: Parameters) extends MultiIOModule {
   val sim_wait = IO(Output(Bool()))
   val sim = Module(new VTASimDPI)
-  sim.io.reset := reset
+  sim.io.reset := reset.toBool
   sim.io.clock := clock
   sim_wait := sim.io.dpi_wait
 }

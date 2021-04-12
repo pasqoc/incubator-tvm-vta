@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 /*!
  * \file hw_spec.h
  * \brief Preprocessor definitions for VTA HLS design and runtime.
@@ -24,6 +26,20 @@
 
 #ifndef VTA_HW_SPEC_H_
 #define VTA_HW_SPEC_H_
+
+// The hw_config.h header files is auto-generated from the selected
+// json target file in the vta config directory. Its only purpose is
+// enabling full resolution of macros and macro dependent objects from
+// within integrated development environments and debuggers, which 
+// would be otherwise impossible since all macros are currently passed
+// on the command line. Effectively this file is redundant for the
+// purpose of specifying the macros definition since they are overridden
+// by those on the command line. It can be safely commented out.
+#ifdef VTA_CONFIG_DEBUG
+#include <vta/hw_config.h>
+#endif // VTA_CONFIG_DEBUG
+
+#define PACKED_ALIGNED_4 __attribute__((packed, aligned(4)))
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,8 +54,6 @@ extern "C" {
 #define VTA_LOG_INS_WIDTH 7
 /*! Instruction data type width */
 #define VTA_INS_WIDTH (1 << VTA_LOG_INS_WIDTH)
-/*! log2 of micro op data type width */
-#define VTA_LOG_UOP_WIDTH 5
 /*! Micro Op data type width */
 #define VTA_UOP_WIDTH (1 << VTA_LOG_UOP_WIDTH)
 /*! Weight data type width */
@@ -118,10 +132,17 @@ extern "C" {
 #define VTA_LOG_ACC_BUFF_DEPTH \
     (VTA_LOG_ACC_BUFF_SIZE - VTA_LOG_BATCH - VTA_LOG_BLOCK_OUT - VTA_LOG_ACC_WIDTH + 3)
 
+/*! inp factor width is a fraction of overall inp buffer size */
+#define VTA_INP_FACTOR_WIDTH (VTA_LOG_INP_BUFF_DEPTH - VTA_LOG_INP_FACTOR_RESTRICT)
+/*! wgt factor width is a fraction of overall wgt buffer size */
+#define VTA_WGT_FACTOR_WIDTH (VTA_LOG_WGT_BUFF_DEPTH - VTA_LOG_WGT_FACTOR_RESTRICT)
+/*! acc factor width is a fraction of overall acc buffer size */
+#define VTA_ACC_FACTOR_WIDTH (VTA_LOG_ACC_BUFF_DEPTH - VTA_LOG_ACC_FACTOR_RESTRICT)
+
 /*! Instruction opcode field bitwidth */
 #define VTA_OPCODE_BIT_WIDTH 3
 /*! ALU opcode field bitwidth */
-#define VTA_ALU_OPCODE_BIT_WIDTH 2
+#define VTA_ALU_OPCODE_BIT_WIDTH 3
 
 /*! Opcode: load encoding */
 #define VTA_OPCODE_LOAD 0
@@ -142,6 +163,12 @@ extern "C" {
 #define VTA_ALU_OPCODE_ADD 2
 /*! ALU opcode: shift right by immediate op */
 #define VTA_ALU_OPCODE_SHR 3
+/*! ALU opcode: clip between min and max (2 half width imms) */
+#define VTA_ALU_OPCODE_CLP 4
+/*! ALU opcode: move from src to dest */
+#define VTA_ALU_OPCODE_MOV 5
+/*! ALU opcode: elemwise multiplication op */
+#define VTA_ALU_OPCODE_MUL 6
 
 /*! Memory type field bitwidth */
 #define VTA_MEMOP_ID_BIT_WIDTH 2
@@ -162,7 +189,7 @@ extern "C" {
 /*! ALU Instruction: immediate bitwidth*/
 #define VTA_ALUOP_IMM_BIT_WIDTH 16
 /*! ALU Instruction: shift arg bitwidth*/
-#define VTA_SHR_ARG_BIT_WIDTH (VTA_LOG_ACC_WIDTH)
+#define VTA_SHR_ARG_BIT_WIDTH (VTA_LOG_ACC_WIDTH + 2)
 /*! ALU Instruction: multiply arg bitwidth*/
 #define VTA_MUL_ARG_BIT_WIDTH 8
 
@@ -190,14 +217,14 @@ extern "C" {
 /*! GEMM Micro-op end position of the wgt_idx field */
 #define VTA_UOP_GEM_2_1 (VTA_UOP_GEM_2_0 + VTA_LOG_WGT_BUFF_DEPTH - 1)
 
-/*! GEMM Micro-op start position of the acc_idx field */
+/*! ALU Micro-op start position of the acc_idx field */
 #define VTA_UOP_ALU_0_0 0
-/*! GEMM Micro-op end position of the acc_idx field */
+/*! ALU Micro-op end position of the acc_idx field */
 #define VTA_UOP_ALU_0_1 (VTA_UOP_ALU_0_0 + VTA_LOG_ACC_BUFF_DEPTH - 1)
-/*! GEMM Micro-op start position of the inp_idx field */
+/*! ALU Micro-op start position of the inp_idx field */
 #define VTA_UOP_ALU_1_0 (VTA_UOP_ALU_0_1 + 1)
-/*! GEMM Micro-op end position of the inp_idx field */
-#define VTA_UOP_ALU_1_1 (VTA_UOP_ALU_1_0 + VTA_LOG_INP_BUFF_DEPTH - 1)
+/*! ALU Micro-op end position of the inp_idx field */
+#define VTA_UOP_ALU_1_1 (VTA_UOP_ALU_1_0 + VTA_LOG_ACC_BUFF_DEPTH - 1)
 
 /*! \brief VTA generic instruction */
 typedef struct {
@@ -226,6 +253,13 @@ typedef struct {
 *   y_size = 4, x_size = 4, x_stride = 16, y_pad_0 = 1, y_pad_1 = 1,
 *   x_pad_0 = 1, x_pad_1 = 1.
 */
+#define FILL_WIDTH_MEM (64 - 1 - VTA_MEMOP_DRAM_ADDR_BIT_WIDTH - VTA_MEMOP_SRAM_ADDR_BIT_WIDTH \
+                          - VTA_MEMOP_ID_BIT_WIDTH - 1 - 1 - 1 - 1 - VTA_OPCODE_BIT_WIDTH)
+#if FILL_WIDTH_MEM > 0
+#define FILL_FIELD_MEM  uint64_t empty_0 : FILL_WIDTH_MEM
+#else
+#define FILL_FIELD_MEM
+#endif
 typedef struct {
   /*! \brief The instruction opcode */
   uint64_t opcode         : VTA_OPCODE_BIT_WIDTH;
@@ -243,6 +277,9 @@ typedef struct {
   uint64_t sram_base      : VTA_MEMOP_SRAM_ADDR_BIT_WIDTH;
   /*! \brief DRAM base address (pointer to memory elem type) */
   uint64_t dram_base      : VTA_MEMOP_DRAM_ADDR_BIT_WIDTH;
+  /*! \brief Pad with zero value or largest negative value? */
+  uint64_t is_pad_min_value : 1;
+  FILL_FIELD_MEM;
   /*! \brief 2D access pattern: y-size */
   uint64_t y_size         : VTA_MEMOP_SIZE_BIT_WIDTH;
   /*! \brief 2D access pattern: x-size (in terms of memory elements) */
@@ -286,6 +323,13 @@ typedef struct {
 *   \endcode
 *
 */
+#define FILL_WIDTH_GEMM (64 - VTA_LOOP_ITER_WIDTH - VTA_LOOP_ITER_WIDTH - VTA_LOG_UOP_BUFF_DEPTH \
+                          - 1 - VTA_LOG_UOP_BUFF_DEPTH - 1 - 1 - 1 - 1 - 1 - VTA_OPCODE_BIT_WIDTH)
+#if FILL_WIDTH_GEMM > 0
+#define FILL_FIELD_GEMM  uint64_t empty_0 : FILL_WIDTH_GEMM
+#else
+#define FILL_FIELD_GEMM
+#endif
 typedef struct {
   /*! \brief The instruction opcode */
   uint64_t opcode         : VTA_OPCODE_BIT_WIDTH;
@@ -307,18 +351,19 @@ typedef struct {
   uint64_t iter_out       : VTA_LOOP_ITER_WIDTH;
   /*! \brief Iterations in the inner uop execution loop */
   uint64_t iter_in        : VTA_LOOP_ITER_WIDTH;
+  FILL_FIELD_GEMM;
   /*! \brief Outer loop accumulator memory index factor */
-  uint64_t dst_factor_out : VTA_LOG_ACC_BUFF_DEPTH;
+  uint64_t dst_factor_out : VTA_ACC_FACTOR_WIDTH;
   /*! \brief Inner loop accumulator memory index factor */
-  uint64_t dst_factor_in  : VTA_LOG_ACC_BUFF_DEPTH;
+  uint64_t dst_factor_in  : VTA_ACC_FACTOR_WIDTH;
   /*! \brief Outer loop input memory index factor */
-  uint64_t src_factor_out : VTA_LOG_INP_BUFF_DEPTH;
+  uint64_t src_factor_out : VTA_INP_FACTOR_WIDTH;
   /*! \brief Inner loop input memory index factor */
-  uint64_t src_factor_in  : VTA_LOG_INP_BUFF_DEPTH;
+  uint64_t src_factor_in  : VTA_INP_FACTOR_WIDTH;
   /*! \brief Outer loop weight memory index factor */
-  uint64_t wgt_factor_out : VTA_LOG_WGT_BUFF_DEPTH;
+  uint64_t wgt_factor_out : VTA_WGT_FACTOR_WIDTH;
   /*! \brief Inner loop weight memory index factor */
-  uint64_t wgt_factor_in  : VTA_LOG_WGT_BUFF_DEPTH;
+  uint64_t wgt_factor_in  : VTA_WGT_FACTOR_WIDTH;
 } VTAGemInsn;
 
 /*! \brief VTA ALU instruction
@@ -350,6 +395,14 @@ typedef struct {
 *   \endcode
 *
 */
+#define FILL_WIDTH_ALU (64 - VTA_LOOP_ITER_WIDTH - VTA_LOOP_ITER_WIDTH - VTA_LOG_UOP_BUFF_DEPTH \
+                     - 1 - VTA_LOG_UOP_BUFF_DEPTH - 1 - 1 - 1 - 1 - 1 - VTA_OPCODE_BIT_WIDTH)
+#if FILL_WIDTH_ALU > 0
+#define FILL_FIELD_ALU  uint64_t empty_0 : FILL_WIDTH_ALU
+#else
+#define FILL_FIELD_ALU
+#endif
+
 typedef struct {
   /*! \brief The instruction opcode */
   uint64_t opcode         : VTA_OPCODE_BIT_WIDTH;
@@ -371,14 +424,15 @@ typedef struct {
   uint64_t iter_out       : VTA_LOOP_ITER_WIDTH;
   /*! \brief Iterations in the inner uop execution loop */
   uint64_t iter_in        : VTA_LOOP_ITER_WIDTH;
+  FILL_FIELD_ALU;
   /*! \brief Outer loop accumulator memory destination index factor */
-  uint64_t dst_factor_out : VTA_LOG_ACC_BUFF_DEPTH;
+  uint64_t dst_factor_out : VTA_ACC_FACTOR_WIDTH;
   /*! \brief Inner loop accumulator memory destination index factor */
-  uint64_t dst_factor_in  : VTA_LOG_ACC_BUFF_DEPTH;
+  uint64_t dst_factor_in  : VTA_ACC_FACTOR_WIDTH;
   /*! \brief Outer loop accumulator memory source index factor */
-  uint64_t src_factor_out : VTA_LOG_INP_BUFF_DEPTH;
+  uint64_t src_factor_out : VTA_INP_FACTOR_WIDTH;
   /*! \brief Inner loop accumulator memory source index factor */
-  uint64_t src_factor_in  : VTA_LOG_INP_BUFF_DEPTH;
+  uint64_t src_factor_in  : VTA_INP_FACTOR_WIDTH;
   /*! \brief ALU opcode */
   uint64_t alu_opcode     : VTA_ALU_OPCODE_BIT_WIDTH;
   /*! \brief Use immediate is true */
@@ -399,16 +453,31 @@ union VTAInsn {
   VTAAluInsn alu;
 };
 
-/*! \brief VTA micro-op for GEMM/ALU instruction */
-typedef struct {
+/*! \brief VTA micro-op for GEMM instruction */
+typedef struct PACKED_ALIGNED_4 {
   /*! \brief Destination index (indexes accum buffer) */
   uint32_t dst_idx    : VTA_LOG_ACC_BUFF_DEPTH;
-  /*! \brief Source index (indexes input buffer for GEMM or accum buffer for ALU) */
+  /*! \brief Source index (indexes input buffer for GEMM) */
   uint32_t src_idx    : VTA_LOG_INP_BUFF_DEPTH;
   /*! \brief Weight index (indexes weight buffer) */
   uint32_t wgt_idx    : VTA_LOG_WGT_BUFF_DEPTH;
-} VTAUop;
+} VTAGemUop;
 
+/*! \brief VTA micro-op for ALU instruction */
+typedef struct PACKED_ALIGNED_4 {
+  /*! \brief Destination index (indexes accum buffer) */
+  uint32_t dst_idx    : VTA_LOG_ACC_BUFF_DEPTH;
+  /*! \brief Source index (indexes accum buffer for ALU) */
+  uint32_t src_idx    : VTA_LOG_ACC_BUFF_DEPTH;
+} VTAAluUop;
+
+/*! \brief VTA micro-op converter */
+union PACKED_ALIGNED_4 VTAUop {
+  /*! \brief VTA GEMM micro-op */
+  VTAGemUop gem;
+  /*! \brief VTA ALU micro-op */
+  VTAAluUop alu;
+};
 #ifdef __cplusplus
 }
 #endif

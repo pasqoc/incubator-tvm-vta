@@ -20,6 +20,8 @@
  * \brief VTA driver for DE10_Nano board.
  */
 
+// Modified by contributors from Intel Labs
+
 #include "de10nano_driver.h"
 #include "de10nano_mgr.h"
 
@@ -101,11 +103,76 @@ uint32_t VTAReadMappedReg(void* base_addr, uint32_t offset) {
   return *((volatile uint32_t *) (reinterpret_cast<char *>(base_addr) + offset));
 }
 
+class Profiler {
+ public:
+  Profiler() {
+    counters_ = new int[num_counters_];
+    this->ClearAll();
+  }
+
+  ~Profiler() {
+    delete [] counters_;
+  }
+
+  /*! \brief update one event counter */
+  void Update(uint32_t idx, uint32_t value) {
+    counters_[idx] += value;
+  }
+
+  /*! \brief clear one event counter*/
+  void Clear(uint32_t idx) {
+    counters_[idx] = 0;
+  }
+
+  /*! \brief clear all event counters */
+  void ClearAll() {
+    for (uint32_t i = 0; i < num_counters_; i++) {
+      counters_[i] = 0;
+    }
+  }
+
+  /*! \brief return counters as json */
+  std::string AsJSON() {
+    uint32_t bytes_per_pulse = 8;
+    std::ostringstream os;
+    os << "{\n"
+       << " \"cycle_counter\":" << counters_[0] << ",\n"
+       << " \"inp_load_nbytes\":" << counters_[3] * bytes_per_pulse << ",\n"
+       << " \"wgt_load_nbytes\":" << counters_[4] * bytes_per_pulse << ",\n"
+       << " \"acc_load_nbytes\":" << counters_[2] * bytes_per_pulse << ",\n"
+       << " \"uop_load_nbytes\":" << counters_[5] * bytes_per_pulse << ",\n"
+       << " \"out_store_nbytes\":" << counters_[6] * bytes_per_pulse << ",\n"
+       << " \"gemm_counter\":" << counters_[8] << ",\n"
+       << " \"alu_counter\":" << counters_[7] << ",\n"
+       << " \"acc_wr_counter\":" << counters_[1] << ",\n"
+       << " \"idle_ld_cycles\":" << counters_[9] << ",\n"
+       << " \"idle_st_cycles\":" << counters_[10] << ",\n"
+       << " \"idle_cp_cycles\":" << counters_[11] << ",\n"
+       << " \"stall_ld_cycles\":" << counters_[12] << ",\n"
+       << " \"stall_st_cycles\":" << counters_[13] << ",\n"
+       << " \"stall_cp_cycles\":" << counters_[14] << "\n"
+       <<"}\n";
+    return os.str();
+  }
+
+  static Profiler* Global() {
+    static Profiler inst;
+    return &inst;
+  }
+
+ private:
+  /*! \brief total number of event counters */
+  uint32_t num_counters_{15};
+  /*! \brief event counters */
+  int* counters_{nullptr};
+};
+
 class VTADevice {
  public:
   VTADevice() {
     // VTA stage handles
     vta_host_handle_ = VTAMapRegister(VTA_HOST_ADDR);
+    prof_ = Profiler::Global();
   }
 
   ~VTADevice() {
@@ -119,6 +186,25 @@ class VTADevice {
     VTAWriteMappedReg(vta_host_handle_, 0x04, 0);
     VTAWriteMappedReg(vta_host_handle_, 0x08, insn_count);
     VTAWriteMappedReg(vta_host_handle_, 0x0c, insn_phy_addr);
+    VTAWriteMappedReg(vta_host_handle_, 0x10, 0);
+    VTAWriteMappedReg(vta_host_handle_, 0x14, 0);
+    VTAWriteMappedReg(vta_host_handle_, 0x18, 0);
+    VTAWriteMappedReg(vta_host_handle_, 0x1c, 0);
+    VTAWriteMappedReg(vta_host_handle_, 0x20, 0);
+    VTAWriteMappedReg(vta_host_handle_, 0x24, 0); // acc_wr_event
+    VTAWriteMappedReg(vta_host_handle_, 0x28, 0); // acc_ld_event
+    VTAWriteMappedReg(vta_host_handle_, 0x2c, 0); // inp_ld_event
+    VTAWriteMappedReg(vta_host_handle_, 0x30, 0); // wgt_ld_event
+    VTAWriteMappedReg(vta_host_handle_, 0x34, 0); // uop_ld_event
+    VTAWriteMappedReg(vta_host_handle_, 0x38, 0); // out_st_event
+    VTAWriteMappedReg(vta_host_handle_, 0x3c, 0); // alu_lp_event
+    VTAWriteMappedReg(vta_host_handle_, 0x40, 0); // gem_lp_event
+    VTAWriteMappedReg(vta_host_handle_, 0x44, 0); // idle_ld_event
+    VTAWriteMappedReg(vta_host_handle_, 0x48, 0); // idle_st_event
+    VTAWriteMappedReg(vta_host_handle_, 0x4c, 0); // idle_cp_event
+    VTAWriteMappedReg(vta_host_handle_, 0x50, 0); // stall_ld_event
+    VTAWriteMappedReg(vta_host_handle_, 0x54, 0); // stall_st_event
+    VTAWriteMappedReg(vta_host_handle_, 0x58, 0); // stall_cp_event
 
     // VTA start
     VTAWriteMappedReg(vta_host_handle_, 0x0, VTA_START);
@@ -131,6 +217,11 @@ class VTADevice {
       if (flag == 0x2) break;
       std::this_thread::yield();
     }
+
+    prof_->Update(0, VTAReadMappedReg(vta_host_handle_, 0x04));
+    for (uint i = 1, a = 0x24; i < 15; i++, a+=0x4)
+      prof_->Update(i, VTAReadMappedReg(vta_host_handle_, a));
+
     // Report error if timeout
     return t < wait_cycles ? 0 : 1;
   }
@@ -138,6 +229,8 @@ class VTADevice {
  private:
   // VTA handles (register maps)
   void* vta_host_handle_{nullptr};
+  // Profiler
+  Profiler* prof_;
 };
 
 VTADeviceHandle VTADeviceAlloc() {
@@ -177,3 +270,12 @@ TVM_REGISTER_GLOBAL("vta.de10nano.program")
     VTAProgram(bitstream.c_str());
 });
 
+TVM_REGISTER_GLOBAL("vta.de10nano.profiler_clear")
+.set_body([](TVMArgs args, TVMRetValue* rv) {
+    Profiler::Global()->ClearAll();
+  });
+
+TVM_REGISTER_GLOBAL("vta.de10nano.profiler_status")
+.set_body([](TVMArgs args, TVMRetValue* rv) {
+    *rv = Profiler::Global()->AsJSON();
+  });

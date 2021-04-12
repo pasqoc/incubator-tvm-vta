@@ -113,6 +113,7 @@ jvm/*/*/target/
 *.project
 *.settings
 */node_modules/
+.jvmopts
 
 ## Various settings
 *.pbxuser
@@ -125,6 +126,7 @@ jvm/*/*/target/
 !default.perspectivev3
 xcuserdata/
 .pkl_memoize_*
+.metals
 
 .emscripten*
 .m2
@@ -235,3 +237,11 @@ conda/pkg
 *.tokens
 *.interp
 tvm/
+
+# generated code.
+include/vta/hw_config.h
+
+# Build artifacts.
+hardware/chisel/project
+hardware/chisel/target
+build

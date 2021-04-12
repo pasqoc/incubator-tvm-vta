@@ -17,10 +17,12 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.shell
 
 import chisel3._
-import chisel3.experimental.{withClockAndReset, RawModule}
+import chisel3.{withClockAndReset, RawModule}
 import vta.util.config._
 import vta.interface.axi._
 

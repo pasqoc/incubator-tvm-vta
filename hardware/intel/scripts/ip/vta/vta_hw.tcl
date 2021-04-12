@@ -15,6 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Modified by contributors from Intel Labs
+
 # request TCL package from ACDS 16.1
 package require -exact qsys 16.1
 
@@ -85,11 +87,11 @@ add_interface_port m_axi_gmem io_mem_ar_bits_lock arlock Output 2
 add_interface_port m_axi_gmem io_mem_ar_bits_prot arprot Output 3
 add_interface_port m_axi_gmem io_mem_ar_bits_size arsize Output 3
 add_interface_port m_axi_gmem io_mem_ar_bits_user aruser Output 5
-add_interface_port m_axi_gmem io_mem_ar_bits_id arid Output 1
+add_interface_port m_axi_gmem io_mem_ar_bits_id arid Output 8
 add_interface_port m_axi_gmem io_mem_r_ready rready Output 1
 add_interface_port m_axi_gmem io_mem_r_valid rvalid Input 1
 add_interface_port m_axi_gmem io_mem_r_bits_data rdata Input 64
-add_interface_port m_axi_gmem io_mem_r_bits_id rid Input 1
+add_interface_port m_axi_gmem io_mem_r_bits_id rid Input 8
 add_interface_port m_axi_gmem io_mem_r_bits_last rlast Input 1
 add_interface_port m_axi_gmem io_mem_r_bits_resp rresp Input 2
 add_interface_port m_axi_gmem io_mem_aw_valid awvalid Output 1
@@ -102,17 +104,17 @@ add_interface_port m_axi_gmem io_mem_aw_bits_len awlen Output 4
 add_interface_port m_axi_gmem io_mem_aw_bits_lock awlock Output 2
 add_interface_port m_axi_gmem io_mem_aw_bits_size awsize Output 3
 add_interface_port m_axi_gmem io_mem_aw_bits_user awuser Output 5
-add_interface_port m_axi_gmem io_mem_aw_bits_id awid Output 1
+add_interface_port m_axi_gmem io_mem_aw_bits_id awid Output 8
 add_interface_port m_axi_gmem io_mem_w_bits_data wdata Output 64
 add_interface_port m_axi_gmem io_mem_w_ready wready Input 1
 add_interface_port m_axi_gmem io_mem_w_valid wvalid Output 1
 add_interface_port m_axi_gmem io_mem_w_bits_last wlast Output 1
 add_interface_port m_axi_gmem io_mem_w_bits_strb wstrb Output 8
-add_interface_port m_axi_gmem io_mem_w_bits_id wid Output 1
+add_interface_port m_axi_gmem io_mem_w_bits_id wid Output 8
 add_interface_port m_axi_gmem io_mem_b_ready bready Output 1
 add_interface_port m_axi_gmem io_mem_b_valid bvalid Input 1
 add_interface_port m_axi_gmem io_mem_b_bits_resp bresp Input 2
-add_interface_port m_axi_gmem io_mem_b_bits_id bid Input 1
+add_interface_port m_axi_gmem io_mem_b_bits_id bid Input 8
 
 # connection point s_axi_control
 add_interface s_axi_control axi end

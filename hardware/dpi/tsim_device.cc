@@ -17,9 +17,13 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
+#include <cassert>
 #include <chrono>
 #include <thread>
 #include <vta/dpi/tsim.h>
+#include <verilated.h>
 
 #if VM_TRACE
 #ifdef VM_TRACE_FST
@@ -58,19 +62,25 @@ void VTAHostDPI(dpi8_t* req_valid,
                resp_valid, resp_value);
 }
 
-void VTAMemDPI(dpi8_t req_valid,
-               dpi8_t req_opcode,
-               dpi8_t req_len,
-               dpi64_t req_addr,
+void VTAMemDPI(dpi8_t rd_req_valid,
+               dpi8_t rd_req_len,
+	       dpi8_t rd_req_id,
+               dpi64_t rd_req_addr,
+               dpi8_t wr_req_valid,
+               dpi8_t wr_req_len,
+               dpi64_t wr_req_addr,
                dpi8_t wr_valid,
-               dpi64_t wr_value,
+               const svOpenArrayHandle wr_value,
+               dpi64_t wr_strb,
                dpi8_t* rd_valid,
-               dpi64_t* rd_value,
+	       dpi8_t* rd_id,
+               const svOpenArrayHandle  rd_value,
                dpi8_t rd_ready) {
   assert(_mem_dpi != nullptr);
-  (*_mem_dpi)(_ctx, req_valid, req_opcode, req_len,
-              req_addr, wr_valid, wr_value,
-              rd_valid, rd_value, rd_ready);
+  (*_mem_dpi)(_ctx, rd_req_valid, rd_req_len, rd_req_id,
+              rd_req_addr, wr_req_valid, wr_req_len, wr_req_addr, 
+              wr_valid, wr_value, wr_strb,
+              rd_valid, rd_id,rd_value, rd_ready);
 
 }
 
@@ -91,8 +101,13 @@ void vl_finish(const char* filename, int linenum, const char* hier) {
   Verilated::gotFinish(true);
 }
 
+uint64_t tsim_trace_count = 0;
+double sc_time_stamp () {       // Called by $time in Verilog
+    return tsim_trace_count;
+}
+
 int VTADPISim() {
-  uint64_t trace_count = 0;
+  tsim_trace_count = 0; // Reset at every call
   Verilated::flushCall();
   Verilated::gotFinish(false);
 
@@ -119,16 +134,16 @@ int VTADPISim() {
     top->clock = 0;
     top->eval();
 #if VM_TRACE
-    if (trace_count >= start)
-      tfp->dump(static_cast<vluint64_t>(trace_count * 2));
+    if (tsim_trace_count >= start)
+      tfp->dump(static_cast<vluint64_t>(tsim_trace_count * 2));
 #endif
     top->clock = 1;
     top->eval();
 #if VM_TRACE
-    if (trace_count >= start)
-      tfp->dump(static_cast<vluint64_t>(trace_count * 2 + 1));
+    if (tsim_trace_count >= start)
+      tfp->dump(static_cast<vluint64_t>(tsim_trace_count * 2 + 1));
 #endif
-    trace_count++;
+    tsim_trace_count++;
   }
   top->reset = 0;
 
@@ -138,19 +153,19 @@ int VTADPISim() {
     top->clock = 0;
     top->eval();
 #if VM_TRACE
-    if (trace_count >= start)
-      tfp->dump(static_cast<vluint64_t>(trace_count * 2));
+    if (tsim_trace_count >= start)
+      tfp->dump(static_cast<vluint64_t>(tsim_trace_count * 2));
 #endif
     top->sim_clock = 1;
     top->clock = 1;
     top->eval();
 #if VM_TRACE
-    if (trace_count >= start)
-      tfp->dump(static_cast<vluint64_t>(trace_count * 2 + 1));
+    if (tsim_trace_count >= start)
+      tfp->dump(static_cast<vluint64_t>(tsim_trace_count * 2 + 1));
 #endif
-    trace_count++;
-    if ((trace_count % 1000000) == 1)
-      fprintf(stderr, "[traced %luM cycles]\n", trace_count / 1000000);
+    tsim_trace_count++;
+    if ((tsim_trace_count % 1000000) == 1)
+      fprintf(stderr, "[traced %luM cycles]\n", tsim_trace_count / 1000000);
     while (top->sim_wait) {
       top->clock = 0;
       std::this_thread::sleep_for(std::chrono::milliseconds(100));

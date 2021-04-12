@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 name := "vta"
 version := "0.1.0-SNAPSHOT"
 organization := "edu.washington.cs"
@@ -54,19 +56,27 @@ def javacOptionsVersion(scalaVersion: String): Seq[String] = {
   }
 }
 
-scalaVersion := "2.11.12"
+scalaVersion := "2.12.13"
 
 resolvers ++= Seq(
   Resolver.sonatypeRepo("snapshots"),
   Resolver.sonatypeRepo("releases"))
 
 val defaultVersions = Map(
-  "chisel3" -> "3.1.7",
-  "chisel-iotesters" -> "1.2.4"
+  "chisel3" -> "3.4.2",
+  "chisel-iotesters" -> "1.5.2"
   )
 
 libraryDependencies ++= Seq("chisel3","chisel-iotesters").map {
   dep: String => "edu.berkeley.cs" %% dep % sys.props.getOrElse(dep + "Version", defaultVersions(dep)) }
 
+libraryDependencies ++= Seq(
+"com.fasterxml.jackson.core" % "jackson-databind" % "2.10.3",
+"com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.10.3"
+)
+
 scalacOptions ++= scalacOptionsVersion(scalaVersion.value)
 javacOptions ++= javacOptionsVersion(scalaVersion.value)
+
+resolvers += Resolver.sonatypeRepo("releases")
+addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.1" cross CrossVersion.full)

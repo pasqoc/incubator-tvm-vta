@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 /*!
  * \file vta_test.cpp
  * \brief Simulation tests for the VTA design.
@@ -41,8 +43,14 @@ int main(void) {
     status |= alu_test(VTA_ALU_OPCODE_MIN, true, VTA_BLOCK_OUT, 128, false);
     status |= alu_test(VTA_ALU_OPCODE_MAX, true, VTA_BLOCK_OUT, 128, true);
     status |= alu_test(VTA_ALU_OPCODE_MAX, true, VTA_BLOCK_OUT, 128, false);
+    status |= alu_test(VTA_ALU_OPCODE_CLP, true, VTA_BLOCK_OUT, 128, true);
+    status |= alu_test(VTA_ALU_OPCODE_CLP, true, VTA_BLOCK_OUT, 128, false);
+    status |= alu_test(VTA_ALU_OPCODE_MOV, true, VTA_BLOCK_OUT, 128, true);
+    status |= alu_test(VTA_ALU_OPCODE_MOV, true, VTA_BLOCK_OUT, 128, false);
     status |= alu_test(VTA_ALU_OPCODE_ADD, true, VTA_BLOCK_OUT, 128, true);
     status |= alu_test(VTA_ALU_OPCODE_ADD, true, VTA_BLOCK_OUT, 128, false);
+    status |= alu_test(VTA_ALU_OPCODE_MUL, true, VTA_BLOCK_OUT, 128, true);
+    status |= alu_test(VTA_ALU_OPCODE_MUL, true, VTA_BLOCK_OUT, 128, false);
     status |= alu_test(VTA_ALU_OPCODE_SHR, true, VTA_BLOCK_OUT, 128, true);
     status |= alu_test(VTA_ALU_OPCODE_SHR, true, VTA_BLOCK_OUT, 128, false);
 
@@ -51,8 +59,14 @@ int main(void) {
     status |= alu_test(VTA_ALU_OPCODE_MIN, false, VTA_BLOCK_OUT, 128, false);
     status |= alu_test(VTA_ALU_OPCODE_MAX, false, VTA_BLOCK_OUT, 128, true);
     status |= alu_test(VTA_ALU_OPCODE_MAX, false, VTA_BLOCK_OUT, 128, false);
+    status |= alu_test(VTA_ALU_OPCODE_CLP, false, VTA_BLOCK_OUT, 128, true);
+    status |= alu_test(VTA_ALU_OPCODE_CLP, false, VTA_BLOCK_OUT, 128, false);
+    status |= alu_test(VTA_ALU_OPCODE_MOV, false, VTA_BLOCK_OUT, 128, true);
+    status |= alu_test(VTA_ALU_OPCODE_MOV, false, VTA_BLOCK_OUT, 128, false);
     status |= alu_test(VTA_ALU_OPCODE_ADD, false, VTA_BLOCK_OUT, 128, true);
     status |= alu_test(VTA_ALU_OPCODE_ADD, false, VTA_BLOCK_OUT, 128, false);
+    status |= alu_test(VTA_ALU_OPCODE_MUL, false, VTA_BLOCK_OUT, 128, true);
+    status |= alu_test(VTA_ALU_OPCODE_MUL, false, VTA_BLOCK_OUT, 128, false);
     status |= alu_test(VTA_ALU_OPCODE_SHR, false, VTA_BLOCK_OUT, 128, true);
     status |= alu_test(VTA_ALU_OPCODE_SHR, false, VTA_BLOCK_OUT, 128, false);
 

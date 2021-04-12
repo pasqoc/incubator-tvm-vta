@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.core
 
 import chisel3._
@@ -25,26 +27,31 @@ import vta.shell._
 
 /** Core parameters */
 case class CoreParams(
-    batch: Int = 1,
-    blockOut: Int = 16,
-    blockIn: Int = 16,
-    inpBits: Int = 8,
-    wgtBits: Int = 8,
-    uopBits: Int = 32,
-    accBits: Int = 32,
-    outBits: Int = 8,
-    uopMemDepth: Int = 512,
-    inpMemDepth: Int = 512,
-    wgtMemDepth: Int = 512,
-    accMemDepth: Int = 512,
-    outMemDepth: Int = 512,
-    instQueueEntries: Int = 32
+    batch: Int,
+    blockOut: Int,
+    blockOutFactor: Int,
+    blockIn: Int,
+    inpBits: Int,
+    wgtBits: Int,
+    uopBits: Int,
+    accBits: Int,
+    outBits: Int,
+    uopMemDepth: Int,
+    inpMemDepth: Int,
+    wgtMemDepth: Int,
+    accMemDepth: Int,
+    outMemDepth: Int,
+    inpFactorBits: Int,
+    wgtFactorBits: Int,
+    accFactorBits: Int,
+    instQueueEntries: Int
 ) {
   require(uopBits % 8 == 0,
     s"\n\n[VTA] [CoreParams] uopBits must be byte aligned\n\n")
 }
 
 case object CoreKey extends Field[CoreParams]
+
 
 /** Core.
  *
@@ -58,7 +65,7 @@ case object CoreKey extends Field[CoreParams]
  * More info about these interfaces and modules can be found in the shell
  * directory.
  */
-class Core(implicit p: Parameters) extends Module {
+class Core(implicit val p: Parameters) extends Module {
   val io = IO(new Bundle {
     val vcr = new VCRClient
     val vme = new VMEMaster
@@ -113,6 +120,19 @@ class Core(implicit p: Parameters) extends Module {
   io.vcr.ecnt <> ecounters.io.ecnt
   io.vcr.ucnt <> ecounters.io.ucnt
   ecounters.io.acc_wr_event := compute.io.acc_wr_event
+  ecounters.io.acc_ld_event := compute.io.acc_ld_event
+  ecounters.io.inp_ld_event := load.io.inp_ld_event
+  ecounters.io.wgt_ld_event := load.io.wgt_ld_event
+  ecounters.io.uop_ld_event := compute.io.uop_ld_event
+  ecounters.io.out_st_event := store.io.vme_wr.data.fire()
+  ecounters.io.alu_lp_event := compute.io.alu_lp_event
+  ecounters.io.gem_lp_event := compute.io.gem_lp_event
+  ecounters.io.idle_ld_event := load.io.idle_ld_event
+  ecounters.io.idle_st_event := store.io.idle_st_event
+  ecounters.io.idle_cp_event := compute.io.idle_cp_event
+  ecounters.io.stall_ld_event := load.io.inp_stall_event || load.io.wgt_stall_event
+  ecounters.io.stall_st_event := store.io.out_stall_event
+  ecounters.io.stall_cp_event := compute.io.uop_stall_event || compute.io.acc_stall_event
 
   // Finish instruction is executed and asserts the VCR finish flag
   val finish = RegNext(compute.io.finish)

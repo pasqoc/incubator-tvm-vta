@@ -15,6 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Modified by contributors from Intel Labs
+
 CC ?= g++
 CFLAGS = -Wall -O3 -std=c++11 -I/usr/include
 LDFLAGS = -L/usr/lib -L/opt/python3.6/lib/python3.6/site-packages/pynq/lib/
@@ -28,10 +30,10 @@ OBJECTS = pynq_driver.o test_lib.o metal_test.o
 EXECUTABLE = vta
 
 # Include VTA config
-VTA_CONFIG = python ../../../config/vta_config.py
-CFLAGS += `${VTA_CONFIG} --cflags`
-LDFLAGS += `${VTA_CONFIG} --ldflags`
-VTA_TARGET := $(shell ${VTA_CONFIG} --target)
+VTA_CONFIG_PY = python3 ../../../config/vta_config.py
+CFLAGS += `${VTA_CONFIG_PY} --cflags`
+LDFLAGS += `${VTA_CONFIG_PY} --ldflags`
+VTA_TARGET := $(shell ${VTA_CONFIG_PY} --target)
 
 # Include bitstream
 VTA_PROGRAM = python3 ../../../python/vta/program_bitstream.py

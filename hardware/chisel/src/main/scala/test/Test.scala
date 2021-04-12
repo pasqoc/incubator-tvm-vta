@@ -17,17 +17,25 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.test
 
 import chisel3._
-import chisel3.experimental.MultiIOModule
+import chisel3.MultiIOModule
 import vta.util.config._
 import vta.shell._
+import vta.dpi._
 
 /** Test. This generates a testbench file for simulation */
 class Test(implicit p: Parameters) extends MultiIOModule {
   val sim_clock = IO(Input(Clock()))
   val sim_wait = IO(Output(Bool()))
+  val mp = p(ShellKey).memParams
+  val dp = p(DpiKey)
+  require(
+    mp.dataBits == dp.dpiDataBits,
+    "-F- DPI mem data transfer bits must equal Accelerator transfer bits")
   val sim_shell = Module(new SimShell)
   val vta_shell = Module(new VTAShell)
   sim_shell.sim_clock := sim_clock

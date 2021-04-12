@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.shell
 
 import chisel3._
@@ -40,6 +42,23 @@ class PynqConfig extends Config((site, here, up) => {
         userBits = 1),
       vcrParams = VCRParams(),
       vmeParams = VMEParams()
+    )
+})
+class JSONShlPynqConfig extends Config((site, here, up) => {
+  case ShellKey =>
+    ShellParams(
+      hostParams = AXIParams(coherent = false,
+        addrBits = 16,
+        dataBits = 32,
+        lenBits = 8,
+        userBits = 1),
+      memParams = AXIParams(coherent = true,
+        addrBits = 32,
+        dataBits = JSONConfig.m("SHL_MEM_AXI_DATA_BITS").asInstanceOf[Int],
+        lenBits = 8,
+        userBits = 1),
+      vcrParams = VCRParams(),
+      vmeParams = JSONVMEParams()
     )
 })
 
@@ -66,13 +85,54 @@ class F1Config extends Config((site, here, up) => {
 class De10Config extends Config((site, here, up) => {
   case ShellKey =>
     ShellParams(
-      hostParams =
-        AXIParams(addrBits = 16, dataBits = 32, idBits = 13, lenBits = 4),
+      hostParams = AXIParams(
+        addrBits = 16,
+        dataBits = 32,
+        idBits = 13,
+        lenBits = 4),
       memParams = AXIParams(
         addrBits = 32,
         dataBits = 64,
         userBits = 5,
         lenBits = 4,  // limit to 16 beats, instead of 256 beats in AXI4
+        coherent = true),
+      vcrParams = VCRParams(),
+      vmeParams = VMEParams()
+    )
+})
+class JSONShlDe10Config extends Config((site, here, up) => {
+  case ShellKey =>
+    ShellParams(
+      hostParams = AXIParams(
+        addrBits = 16,
+        dataBits = 32,
+        idBits = 13,
+        lenBits = 4),
+      memParams = AXIParams(
+        addrBits = 32,
+        dataBits = JSONConfig.m("SHL_MEM_AXI_DATA_BITS").asInstanceOf[Int],
+        userBits = 5,
+        lenBits = 4,  // limit to 16 beats, instead of 256 beats in AXI4
+        coherent = true),
+      vcrParams = VCRParams(),
+      vmeParams = JSONVMEParams()
+    )
+})
+
+/** MinimalConfig. Shell configuration for FV */
+class MinimalConfig extends Config((site, here, up) => {
+  case ShellKey =>
+    ShellParams(
+      hostParams = AXIParams(
+        addrBits = 16,
+        dataBits = 32,
+        idBits = 13,
+        lenBits = 2), // Minimal configuration for FV
+      memParams = AXIParams(
+        addrBits = 32,
+        dataBits = 64,
+        userBits = 5,
+        lenBits = 2,  // Minimal configuration for FV
         coherent = true),
       vcrParams = VCRParams(),
       vmeParams = VMEParams()

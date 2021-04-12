@@ -15,33 +15,47 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Modified by contributors from Intel Labs
+
+export VTA_TARGET = pynq
+
 # Directories
 ROOTDIR = $(CURDIR)
-VTA_HW_DIR = $(CURDIR)/../..
+VTA_HW_DIR = $(shell readlink -f $(CURDIR)/../..)
 BUILD_DIR = $(VTA_HW_DIR)/build/hardware/xilinx
 SCRIPT_DIR = $(CURDIR)/scripts
-SRC_DIR = $(CURDIR)/src
+SRC_DEPS := $(wildcard $(CURDIR)/src/*)
+SRC_DEPS += $(wildcard $(CURDIR)/sim/*)
+SRC_DEPS += $(VTA_HW_DIR)/include/vta/hw_spec.h
+SRC_DEPS += $(wildcard $(VTA_HW_DIR)/tests/hardware/common/*)
 
 # Executables
 VIVADO_HLS = vivado_hls
 VIVADO = vivado
 
 # Process VTA JSON config
-VTA_CONFIG := $(VTA_HW_DIR)/config/vta_config.py
+CONFIG_PY := $(VTA_HW_DIR)/config/vta_config.py
 
 # Derive config name
-CONF := $(shell python ${VTA_CONFIG} --cfg-str)
+CONF   := $(shell VTA_TARGET=$(VTA_TARGET) python3 $(CONFIG_PY) --cfg-str)
+HW_VER := $(shell VTA_TARGET=$(VTA_TARGET) python3 $(CONFIG_PY) --hw-ver)
+TARGET := $(shell VTA_TARGET=$(VTA_TARGET) python3 $(CONFIG_PY) --target)
 IP_BUILD_PATH := $(BUILD_DIR)/hls/$(CONF)
 HW_BUILD_PATH := $(BUILD_DIR)/vivado/$(CONF)
 
 # Config files
 CONFIG_TCL = $(BUILD_DIR)/include/vta_config.tcl
 
+ifeq ($(VTA_CACHE_PATH),)
+  VTA_CACHE_PATH := $(HOME)/.vta_cache
+endif
+CACHE_DIR := $(VTA_CACHE_PATH)/$(TARGET)/$(HW_VER)
+
 # IP file path
 IP_PATH := $(BUILD_DIR)/hls/$(CONF)/vta_compute/soln/impl/ip/xilinx_com_hls_compute_1_0.zip
 
 # Bitstream file path
-BIT_PATH := $(BUILD_DIR)/vivado/$(CONF)/export/$(CONF).bit
+BIT_PATH := $(BUILD_DIR)/vivado/$(CONF)/export/vta.bit
 
 .PHONY: all ip bit clean clean_all
 
@@ -52,19 +66,21 @@ bit: $(BIT_PATH)
 $(BUILD_DIR)/include:
 	mkdir -p $@
 
-$(CONFIG_TCL): | $(BUILD_DIR)/include
-	python $(VTA_CONFIG) --export-tcl $@
+$(CONFIG_TCL): $(BUILD_DIR)/include
+	VTA_TARGET=$(VTA_TARGET) python3 $(CONFIG_PY) --export-tcl $@
 
-$(IP_PATH): $(SRC_DIR)/* $(CONFIG_TCL)
+$(IP_PATH): $(SRC_DEPS) ${CONFIG_TCL}
+	rm -rf $(IP_BUILD_PATH)
 	mkdir -p $(IP_BUILD_PATH)
 	cd $(IP_BUILD_PATH) && \
 		$(VIVADO_HLS) \
 		-f $(SCRIPT_DIR)/hls.tcl \
 		-tclargs \
 			$(VTA_HW_DIR) \
-			$(CONFIG_TCL)
+			${CONFIG_TCL}
 
 $(BIT_PATH): $(IP_PATH)
+	rm -rf $(HW_BUILD_PATH)
 	mkdir -p $(HW_BUILD_PATH)
 	cd $(HW_BUILD_PATH) && \
 		$(VIVADO) \
@@ -72,7 +88,17 @@ $(BIT_PATH): $(IP_PATH)
 		-source $(SCRIPT_DIR)/vivado.tcl \
 		-tclargs \
 			$(BUILD_DIR)/hls/$(CONF) \
-			$(CONFIG_TCL)
+			${CONFIG_TCL}; \
+	echo "checksum: `sha1sum $(BIT_PATH) | cut -d' ' -f1`"
+
+program:
+	python3 $(SCRIPT_DIR)/program.py $(BIT_PATH) && \
+	echo "checksum: `sha1sum $(BIT_PATH) | cut -d' ' -f1`"
+
+install:
+	mkdir -p $(CACHE_DIR); \
+	conf=$(CONF); \
+	cp $(BIT_PATH) $(CACHE_DIR)/$${conf#*_}.bit
 
 clean:
 	rm -rf *.out *.log

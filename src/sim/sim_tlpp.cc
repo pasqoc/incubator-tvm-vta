@@ -17,11 +17,15 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 /*!
  * \file sim_tlpp.cc
  * \brief simulate core level pipe line parallism logic.
  */
 #include <vta/sim_tlpp.h>
+#include "../vta/runtime/trace_mgr.h"
+
 TlppVerify::TlppVerify() {
   done_ = 0;
 }
@@ -35,6 +39,13 @@ void TlppVerify::Clear() {
     }
   }
   done_ = 0;
+}
+
+void TlppVerify::ClearCycle() {
+  for (int i = 0; i < COREMAX; i++) {
+    core_time_cycles_[i] = 0;
+    core_idle_cycles_[i] = 0;
+  }
 }
 
 uint64_t TlppVerify::GetOperationCode(const VTAGenericInsn *insn) {
@@ -141,7 +152,8 @@ void TlppVerify::CoreRun(CORE_TYPE core_type) {
     /*!
      * Execute the instruction.
      */
-    run_fsim_function_(insn, fsim_handle_);
+    int64_t cycles = run_fsim_function_(insn, fsim_handle_);
+    core_time_cycles_[core_type] += cycles;
     /*!
      *check if need to write any dependency queue for notify.
      */
@@ -156,16 +168,20 @@ void TlppVerify::CoreRun(CORE_TYPE core_type) {
       printf("this is thread for %s\n", GetCoreTypeName(core_type));
     }
     ConsumeFrontInsn(core_type);
+    break; 
+    // schedule instruction in round robin fashion.
+    // avoid eager execution of direct dependency.
     insn = PickFrontInsn(core_type);
   }
   return;
 }
 
+// Disable eager exectution of instruction.
 void TlppVerify::EventProcess(void) {
   while (dep_push_event_.size()) {
-      CORE_TYPE core_type = dep_push_event_.front();
+      //CORE_TYPE core_type = dep_push_event_.front();
       dep_push_event_.pop();
-      CoreRun(core_type);
+      //CoreRun(core_type);
   }
 }
 
@@ -182,11 +198,23 @@ void TlppVerify::TlppSynchronization(Run_Function run_function,
      */
     unsigned int seed = time(NULL);
     uint8_t core_start = rand_r(&seed)%COREMAX;
+    int64_t max_cycle_time = 0;
     for (int i = 0; i < COREMAX; i++) {
-      CoreRun(static_cast<CORE_TYPE>((core_start + i) % COREMAX));
+      CORE_TYPE j = static_cast<CORE_TYPE>((core_start + i) % COREMAX);
+      CoreRun(j);
+      if (core_time_cycles_[j] > max_cycle_time)
+        max_cycle_time = core_time_cycles_[j];
     }
+    // After each round of instruction fetch and execute,
+    // compute thread timing.
+    for (int i = 0; i < COREMAX; i++) {
+      int64_t delta_cycle = max_cycle_time - core_time_cycles_[i];
+      core_idle_cycles_[i] += delta_cycle;
+      core_time_cycles_[i] += delta_cycle;
+    }
+    // This is now disabled.
     EventProcess();
-  }while (!done_);
+  } while (!done_);
   Clear();
   return;
 }
@@ -195,6 +223,15 @@ void TlppVerify::TlppPushInsn(const VTAGenericInsn *insn) {
   uint64_t operation_code = GetOperationCode(insn);
   CORE_TYPE core_type = GetCoreType(operation_code, insn);
   insnq_array_[core_type].push(static_cast<const void *>(insn));
+  const char *op = "NOP";
+  switch (core_type) {
+    case COREGEMM:  op = "CP"; break;
+    case CORELOAD:  op = "LD"; break;
+    case CORESTORE: op = "ST"; break;
+    default: break;
+  }
+  vta::trace_mgr.Event("FETCH", "%-4s %016" PRIx64 "%016" PRIx64 "\n",
+  op, *((uint64_t*)insn+1), *((uint64_t*)insn));
   return;
 }
 

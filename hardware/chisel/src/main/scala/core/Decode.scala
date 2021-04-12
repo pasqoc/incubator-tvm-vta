@@ -17,11 +17,14 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.core
 
 import chisel3._
 import chisel3.util._
-
+import chisel3.experimental._
+import vta.util.config._
 import ISA._
 
 /** MemDecode.
@@ -35,6 +38,7 @@ import ISA._
  *   - LACC
  *   - SOUT
  */
+@chiselName
 class MemDecode extends Bundle {
   val xpad_1 = UInt(M_PAD_BITS.W)
   val xpad_0 = UInt(M_PAD_BITS.W)
@@ -43,7 +47,8 @@ class MemDecode extends Bundle {
   val xstride = UInt(M_STRIDE_BITS.W)
   val xsize = UInt(M_SIZE_BITS.W)
   val ysize = UInt(M_SIZE_BITS.W)
-  val empty_0 = UInt(7.W) // derive this
+  val empty_0 = UInt(6.W) // derive this
+  val is_min_pad_value = Bool()
   val dram_offset = UInt(M_DRAM_OFFSET_BITS.W)
   val sram_offset = UInt(M_SRAM_OFFSET_BITS.W)
   val id = UInt(M_ID_BITS.W)
@@ -59,18 +64,33 @@ class MemDecode extends Bundle {
  * Decode GEMM instruction with a Bundle. This is similar to an union,
  * therefore order matters when declaring fields.
  */
-class GemmDecode extends Bundle {
-  val wgt_1 = UInt(C_WIDX_BITS.W)
-  val wgt_0 = UInt(C_WIDX_BITS.W)
-  val inp_1 = UInt(C_IIDX_BITS.W)
-  val inp_0 = UInt(C_IIDX_BITS.W)
-  val acc_1 = UInt(C_AIDX_BITS.W)
-  val acc_0 = UInt(C_AIDX_BITS.W)
-  val empty_0 = Bool()
+@chiselName
+class GemmDecode(implicit val p: Parameters) extends Bundle {
+  val freeBitsHigh = INST_BITS/2 -
+    ( 2 * p(CoreKey).wgtFactorBits +
+      2 * p(CoreKey).inpFactorBits +
+      2 * p(CoreKey).accFactorBits)
+  require(freeBitsHigh >= 0, s"-F- Not enough GEMM high instruction bits left. $freeBitsHigh")
+  val freeBitsLow = INST_BITS/2 -
+    ( OP_BITS +
+      5 +
+      log2Ceil(p(CoreKey).uopMemDepth) +
+      log2Ceil(p(CoreKey).uopMemDepth) + 1 +
+      C_ITER_BITS +
+      C_ITER_BITS)
+  require(freeBitsLow >= 0, s"-F- Not enough GEMM low instruction bits left. $freeBitsLow")
+  val empty_1 = if (freeBitsHigh > 0) Some(UInt(freeBitsHigh.W)) else None
+  val wgt_1 = UInt((p(CoreKey).wgtFactorBits).W)
+  val wgt_0 = UInt((p(CoreKey).wgtFactorBits).W)
+  val inp_1 = UInt((p(CoreKey).inpFactorBits).W)
+  val inp_0 = UInt((p(CoreKey).inpFactorBits).W)
+  val acc_1 = UInt((p(CoreKey).accFactorBits).W)
+  val acc_0 = UInt((p(CoreKey).accFactorBits).W)
+  val empty_0 = if (freeBitsLow > 0) Some(UInt(freeBitsLow.W)) else None
   val lp_1 = UInt(C_ITER_BITS.W)
   val lp_0 = UInt(C_ITER_BITS.W)
-  val uop_end = UInt(C_UOP_END_BITS.W)
-  val uop_begin = UInt(C_UOP_BGN_BITS.W)
+  val uop_end = UInt((log2Ceil(p(CoreKey).uopMemDepth) + 1).W)
+  val uop_begin = UInt(log2Ceil(p(CoreKey).uopMemDepth).W)
   val reset = Bool()
   val push_next = Bool()
   val push_prev = Bool()
@@ -88,21 +108,39 @@ class GemmDecode extends Bundle {
  *   - VMAX
  *   - VADD
  *   - VSHX
+ *   - VCLP
+ *   - VMOV
+ *   - VMUL
  */
-class AluDecode extends Bundle {
-  val empty_1 = Bool()
+@chiselName
+class AluDecode(implicit val p: Parameters) extends Bundle {
+  val freeBitsHigh = INST_BITS/2 -
+    ( C_ALU_IMM_BITS +
+      1 +
+      C_ALU_DEC_BITS +
+      2 * p(CoreKey).inpFactorBits +
+      2 * p(CoreKey).accFactorBits)
+  require(freeBitsHigh >= 0, s"-F- Not enough ALU high instruction bits left. $freeBitsHigh")
+  val freeBitsLow = INST_BITS/2 -
+    ( OP_BITS +
+      5 +
+      log2Ceil(p(CoreKey).uopMemDepth) +
+      log2Ceil(p(CoreKey).uopMemDepth) + 1 +
+      2 * C_ITER_BITS)
+  require(freeBitsLow >= 0, s"-F- Not enough ALU low instruction bits left. $freeBitsLow")
+  val empty_1 = if (freeBitsHigh > 0) Some(UInt(freeBitsHigh.W)) else None
   val alu_imm = UInt(C_ALU_IMM_BITS.W)
   val alu_use_imm = Bool()
   val alu_op = UInt(C_ALU_DEC_BITS.W)
-  val src_1 = UInt(C_IIDX_BITS.W)
-  val src_0 = UInt(C_IIDX_BITS.W)
-  val dst_1 = UInt(C_AIDX_BITS.W)
-  val dst_0 = UInt(C_AIDX_BITS.W)
-  val empty_0 = Bool()
+  val src_1 = UInt((p(CoreKey).inpFactorBits).W)
+  val src_0 = UInt((p(CoreKey).inpFactorBits).W)
+  val dst_1 = UInt((p(CoreKey).accFactorBits).W)
+  val dst_0 = UInt((p(CoreKey).accFactorBits).W)
+  val empty_0 = if (freeBitsLow > 0) Some(UInt(freeBitsLow.W)) else None
   val lp_1 = UInt(C_ITER_BITS.W)
   val lp_0 = UInt(C_ITER_BITS.W)
-  val uop_end = UInt(C_UOP_END_BITS.W)
-  val uop_begin = UInt(C_UOP_BGN_BITS.W)
+  val uop_end = UInt((log2Ceil(p(CoreKey).uopMemDepth) + 1).W)
+  val uop_begin = UInt(log2Ceil(p(CoreKey).uopMemDepth).W)
   val reset = Bool()
   val push_next = Bool()
   val push_prev = Bool()
@@ -115,16 +153,36 @@ class AluDecode extends Bundle {
  *
  * Decode micro-ops (uops).
  */
-class UopDecode extends Bundle {
-  val u2 = UInt(10.W)
-  val u1 = UInt(11.W)
-  val u0 = UInt(11.W)
+@chiselName
+class UopDecode(implicit val p: Parameters) extends Bundle {
+  require(log2Ceil(p(CoreKey).inpMemDepth) + log2Ceil(p(CoreKey).accMemDepth) <= 32,
+    "Must fit inp and acc fields in lower 32 bits of uop given current padding assumptions")
+  val lowFreeBits = if ((log2Ceil(p(CoreKey).accMemDepth) +
+    log2Ceil(p(CoreKey).inpMemDepth) + log2Ceil(p(CoreKey).wgtMemDepth) > 32) &&
+    (log2Ceil(p(CoreKey).wgtMemDepth) <= 32)) { // wgt will be shifted to a word boundary
+      32 - log2Ceil(p(CoreKey).accMemDepth) - log2Ceil(p(CoreKey).inpMemDepth)
+    } else { 0 }
+  require(lowFreeBits >= 0, s"-F- Not enough uop low bits left. $lowFreeBits")
+  val highFreeBits = p(CoreKey).uopBits - lowFreeBits -
+    ( log2Ceil(p(CoreKey).wgtMemDepth) +
+      log2Ceil(p(CoreKey).inpMemDepth) +
+      log2Ceil(p(CoreKey).accMemDepth))
+  require(highFreeBits >= 0,
+    s"-F- Not enough uop high bits left. $highFreeBits wgt=${log2Ceil(p(CoreKey).wgtMemDepth)} " +
+    s"inp=${log2Ceil(p(CoreKey).inpMemDepth)} acc=${log2Ceil(p(CoreKey).accMemDepth)} " +
+    s"pad=${lowFreeBits}")
+  val empty_1 = if (highFreeBits > 0) Some(UInt(highFreeBits.W)) else None
+  val u2 = UInt(log2Ceil(p(CoreKey).wgtMemDepth).W)
+  val empty_0 = if (lowFreeBits > 0) Some(UInt(lowFreeBits.W)) else None
+  val u1 = UInt(log2Ceil(p(CoreKey).inpMemDepth).W)
+  val u0 = UInt(log2Ceil(p(CoreKey).accMemDepth).W)
 }
 
 /** FetchDecode.
  *
  * Partial decoding for dispatching instructions to Load, Compute, and Store.
  */
+@chiselName
 class FetchDecode extends Module {
   val io = IO(new Bundle {
     val inst = Input(UInt(INST_BITS.W))
@@ -162,6 +220,7 @@ class FetchDecode extends Module {
  *
  * Decode dependencies, type and sync for Load module.
  */
+@chiselName
 class LoadDecode extends Module {
   val io = IO(new Bundle {
     val inst = Input(UInt(INST_BITS.W))
@@ -183,6 +242,7 @@ class LoadDecode extends Module {
  *
  * Decode dependencies, type and sync for Compute module.
  */
+@chiselName
 class ComputeDecode extends Module {
   val io = IO(new Bundle {
     val inst = Input(UInt(INST_BITS.W))
@@ -214,6 +274,7 @@ class ComputeDecode extends Module {
  *
  * Decode dependencies, type and sync for Store module.
  */
+@chiselName
 class StoreDecode extends Module {
   val io = IO(new Bundle {
     val inst = Input(UInt(INST_BITS.W))

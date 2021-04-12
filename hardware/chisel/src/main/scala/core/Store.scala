@@ -17,12 +17,16 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.core
 
 import chisel3._
 import chisel3.util._
 import vta.util.config._
+import vta.util._
 import vta.shell._
+import vta.verif.{TraceMgr => trace_mgr}
 
 /** Store.
  *
@@ -39,12 +43,14 @@ class Store(debug: Boolean = false)(implicit p: Parameters) extends Module {
     val out_baddr = Input(UInt(mp.addrBits.W))
     val vme_wr = new VMEWriteMaster
     val out = new TensorClient(tensorType = "out")
+    val idle_st_event = Output(Bool())
+    val out_stall_event = Output(Bool())
   })
   val sIdle :: sSync :: sExe :: Nil = Enum(3)
   val state = RegInit(sIdle)
 
   val s = Module(new Semaphore(counterBits = 8, counterInitValue = 0))
-  val inst_q = Module(new Queue(UInt(INST_BITS.W), p(CoreKey).instQueueEntries))
+  val inst_q = Module(new SyncQueueVTA(UInt(INST_BITS.W), p(CoreKey).instQueueEntries))
 
   val dec = Module(new StoreDecode)
   dec.io.inst := inst_q.io.deq.bits
@@ -90,6 +96,34 @@ class Store(debug: Boolean = false)(implicit p: Parameters) extends Module {
   s.io.spost := io.i_post
   s.io.swait := dec.io.pop_prev & (state === sIdle & start)
   io.o_post := dec.io.push_prev & ((state === sExe & done) | (state === sSync))
+
+  // events
+  io.idle_st_event := state === sIdle
+  io.out_stall_event := io.vme_wr.data.valid && !io.vme_wr.data.ready ||
+    io.vme_wr.cmd.valid  && !io.vme_wr.cmd.ready
+
+
+  // trace
+  if (p(VerifKey).trace) {
+    when(state === sIdle && start) {
+      when(dec.io.isSync) {
+        trace_mgr.Event("EXE", "SNOP %x\n", dec.io.inst)
+      }.elsewhen(dec.io.isStore) {
+        trace_mgr.Event("EXE", "SOUT %x\n", dec.io.inst)
+      }
+    }.elsewhen(state === sExe && done) {
+      when(dec.io.isStore) {
+        trace_mgr.Event("RET", "SOUT %x\n", dec.io.inst)
+      }
+    }.elsewhen(state === sSync) {
+      trace_mgr.Event("RET", "SNOP %x\n", dec.io.inst)
+    }
+    when(state === sExe) {
+      when(dec.io.isStore && io.out_stall_event) {
+        trace_mgr.Event("STALL", "SOUT %x\n", dec.io.inst)
+      }
+    }
+  }
 
   // debug
   if (debug) {

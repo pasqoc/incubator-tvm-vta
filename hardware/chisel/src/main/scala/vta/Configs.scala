@@ -17,12 +17,15 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta
 
 import chisel3._
 import vta.util.config._
 import vta.shell._
 import vta.core._
+import vta.dpi._
 import vta.test._
 
 /** VTA.
@@ -31,12 +34,20 @@ import vta.test._
  * These configurations are built in a mix/match form based on core
  * and shell configurations.
  */
-class DefaultPynqConfig extends Config(new CoreConfig ++ new PynqConfig)
-class DefaultF1Config extends Config(new CoreConfig ++ new F1Config)
-class DefaultDe10Config extends Config(new CoreConfig ++ new De10Config)
+class DefaultPynqConfig extends Config(new CoreConfig ++ new PynqConfig ++ new DpiConfig)
+class JSONPynqConfig extends Config(new JSONCoreConfig ++ new JSONShlPynqConfig ++ new JSONDpiConfig)
+class DefaultF1Config extends Config(new CoreConfig ++ new F1Config ++ new DpiConfig)
+class DefaultDe10Config extends Config(new CoreConfig ++ new De10Config ++ new DpiConfig)
+class JSONDe10Config extends Config(new JSONCoreConfig ++ new JSONShlDe10Config ++ new JSONDpiConfig)
+class JSONMinimalConfig extends Config(new JSONCoreConfig ++ new MinimalConfig ++ new DpiConfig)
 
 object DefaultPynqConfig extends App {
   implicit val p: Parameters = new DefaultPynqConfig
+  chisel3.Driver.execute(args, () => new XilinxShell)
+}
+
+object JSONPynqConfig extends App {
+  implicit val p: Parameters = new JSONPynqConfig
   chisel3.Driver.execute(args, () => new XilinxShell)
 }
 
@@ -50,8 +61,23 @@ object DefaultDe10Config extends App {
   chisel3.Driver.execute(args, () => new IntelShell)
 }
 
+object JSONDe10Config extends App {
+  implicit val p: Parameters = new JSONDe10Config
+  chisel3.Driver.execute(args, () => new IntelShell)
+}
+
+object JSONMinimalConfig extends App {
+  implicit val p: Parameters = new JSONMinimalConfig
+  chisel3.Driver.execute(args, () => new IntelShell)
+}
+
 object TestDefaultPynqConfig extends App {
   implicit val p: Parameters = new DefaultPynqConfig
+  chisel3.Driver.execute(args, () => new Test)
+}
+
+object TestJSONPynqConfig extends App {
+  implicit val p: Parameters = new JSONPynqConfig
   chisel3.Driver.execute(args, () => new Test)
 }
 
@@ -62,5 +88,15 @@ object TestDefaultF1Config extends App {
 
 object TestDefaultDe10Config extends App {
   implicit val p: Parameters = new DefaultDe10Config
+  chisel3.Driver.execute(args, () => new Test)
+}
+
+object TestJSONDe10Config extends App {
+  implicit val p: Parameters = new JSONDe10Config
+  chisel3.Driver.execute(args, () => new Test)
+}
+
+object TestJSONMinimalConfig extends App {
+  implicit val p: Parameters = new JSONMinimalConfig
   chisel3.Driver.execute(args, () => new Test)
 }

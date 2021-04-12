@@ -18,6 +18,9 @@
 
 This module is dependency free and can be used to configure package.
 """
+
+# Modified by contributors from Intel Labs
+
 from __future__ import absolute_import as _abs
 
 import json
@@ -55,18 +58,28 @@ class PkgConfig(object):
         "LOG_WGT_WIDTH",
         "LOG_ACC_WIDTH",
         "LOG_BATCH",
-        "LOG_BLOCK",
+        "LOG_BLOCK_IN",
+        "LOG_BLOCK_OUT",
+        "LOG_UOP_WIDTH",
         "LOG_UOP_BUFF_SIZE",
         "LOG_INP_BUFF_SIZE",
         "LOG_WGT_BUFF_SIZE",
         "LOG_ACC_BUFF_SIZE",
+        "LOG_INP_FACTOR_RESTRICT",
+        "LOG_WGT_FACTOR_RESTRICT",
+        "LOG_ACC_FACTOR_RESTRICT",
+        "ENABLE_INSTRUCTION_CLP",
+        "ENABLE_RUNTIME_GREEDY_UOP_LOADS",
+        "ENABLE_RUNTIME_VALUE_BASED_UOP_CONSOLIDATION",
+        "ENABLE_VTHREAD",
+        "VTHREAD_NAME"
     ]
 
     def __init__(self, cfg):
 
         # Derived parameters
-        cfg["LOG_BLOCK_IN"] = cfg["LOG_BLOCK"]
-        cfg["LOG_BLOCK_OUT"] = cfg["LOG_BLOCK"]
+        # cfg["LOG_BLOCK_IN"] = cfg["LOG_BLOCK"]
+        # cfg["LOG_BLOCK_OUT"] = cfg["LOG_BLOCK"]
         cfg["LOG_OUT_WIDTH"] = cfg["LOG_INP_WIDTH"]
         cfg["LOG_OUT_BUFF_SIZE"] = (
             cfg["LOG_ACC_BUFF_SIZE"] +
@@ -110,9 +123,10 @@ class PkgConfig(object):
             self.ldflags = []
 
         # Derive bitstream config string.
-        self.bitstream = "{}x{}_i{}w{}a{}_{}_{}_{}_{}".format(
+        self.bitstream = "{}x{}x{}_i{}w{}a{}_{}_{}_{}_{}".format(
             (1 << cfg["LOG_BATCH"]),
-            (1 << cfg["LOG_BLOCK"]),
+            (1 << cfg["LOG_BLOCK_IN"]),
+            (1 << cfg["LOG_BLOCK_OUT"]),
             (1 << cfg["LOG_INP_WIDTH"]),
             (1 << cfg["LOG_WGT_WIDTH"]),
             (1 << cfg["LOG_ACC_WIDTH"]),
@@ -139,7 +153,7 @@ class PkgConfig(object):
             # current Chisel-based implement of VTA hardware for DE10-Nano.
             # A future change should be made to propagate these parameters,
             # in order to avoid duplicated definition.
-            self.fpga_freq = 100
+            self.fpga_freq = 50
             self.fpga_per = 2
             self.fpga_log_axi_bus_width = 6
             self.axi_prot_bits = '100'

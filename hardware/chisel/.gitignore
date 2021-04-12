@@ -1,1 +1,8 @@
+# Modified by contributors from Intel Labs
+*~
 test_run_dir
+project/project/
+project/target/
+target/
+DVEfiles/
+ucli.key

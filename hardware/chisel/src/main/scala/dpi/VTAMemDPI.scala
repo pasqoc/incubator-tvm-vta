@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.dpi
 
 import chisel3._
@@ -24,49 +26,85 @@ import chisel3.util._
 import vta.util.config._
 import vta.interface.axi._
 import vta.shell._
-
+import vta.verif.{TraceMgr => trace_mgr}
 /** Memory DPI parameters */
-trait VTAMemDPIParams {
-  val dpiLenBits = 8
-  val dpiAddrBits = 64
-  val dpiDataBits = 64
-}
+case class VTAMemDPIParams(
+    dpiDelay  : Int,
+    dpiLenBits: Int,
+    dpiAddrBits: Int,
+    dpiDataBits: Int,
+    dpiTagBits: Int
+) {}
+case object DpiKey extends Field[VTAMemDPIParams]
 
 /** Memory master interface.
  *
  * This interface is tipically used by the Accelerator
  */
-class VTAMemDPIMaster extends Bundle with VTAMemDPIParams {
+
+class MemRequest(implicit val p: Parameters) extends Bundle {
+  val len =   (UInt(p(DpiKey).dpiLenBits.W))
+  val addr = (UInt(p(DpiKey).dpiAddrBits.W))
+  val id= (UInt(p(DpiKey).dpiTagBits.W))
+}
+
+class VTAMemDPIData(implicit val p: Parameters) extends Bundle {
+  val data = UInt(p(DpiKey).dpiDataBits.W)
+  val id   = UInt(p(DpiKey).dpiTagBits.W)
+  override def cloneType =
+  new VTAMemDPIData().asInstanceOf[this.type]
+}
+
+class VTAMemDPIWrData(implicit val p: Parameters) extends Bundle {
+  val data = UInt(p(DpiKey).dpiDataBits.W)
+  val strb = UInt((p(DpiKey).dpiDataBits/8).W)
+  override def cloneType =
+  new VTAMemDPIWrData().asInstanceOf[this.type]
+}
+
+
+class VTAMemDPIMaster(implicit val p: Parameters) extends Bundle {
   val req = new Bundle {
-    val valid = Output(Bool())
-    val opcode = Output(Bool())
-    val len = Output(UInt(dpiLenBits.W))
-    val addr = Output(UInt(dpiAddrBits.W))
+    val ar_valid = Output(Bool())
+    val ar_len =   Output(UInt(p(DpiKey).dpiLenBits.W))
+    val ar_addr = Output(UInt(p(DpiKey).dpiAddrBits.W))
+    val ar_id   = Output(UInt(p(DpiKey).dpiTagBits.W))
+    val aw_valid = Output(Bool())
+    val aw_addr = Output(UInt(p(DpiKey).dpiAddrBits.W))
+    val aw_len  = Output(UInt(p(DpiKey).dpiLenBits.W))
   }
-  val wr = ValidIO(UInt(dpiDataBits.W))
-  val rd = Flipped(Decoupled(UInt(dpiDataBits.W)))
+  val wr = ValidIO(new VTAMemDPIWrData)
+  val rd = Flipped(Decoupled(new VTAMemDPIData))
 }
 
 /** Memory client interface.
  *
  * This interface is tipically used by the Host
  */
-class VTAMemDPIClient extends Bundle with VTAMemDPIParams {
+class VTAMemDPIClient(implicit val p: Parameters) extends Bundle {
   val req = new Bundle {
-    val valid = Input(Bool())
-    val opcode = Input(Bool())
-    val len = Input(UInt(dpiLenBits.W))
-    val addr = Input(UInt(dpiAddrBits.W))
+    val ar_valid = Input(Bool())
+    val ar_len =   Input(UInt(p(DpiKey).dpiLenBits.W))
+    val ar_addr = Input(UInt(p(DpiKey).dpiAddrBits.W))
+    val ar_id   = Input(UInt(p(DpiKey).dpiTagBits.W))
+    val aw_valid = Input(Bool())
+    val aw_addr = Input(UInt(p(DpiKey).dpiAddrBits.W))
+    val aw_len  = Input(UInt(p(DpiKey).dpiLenBits.W))
   }
-  val wr = Flipped(ValidIO(UInt(dpiDataBits.W)))
-  val rd = Decoupled(UInt(dpiDataBits.W))
+  val wr = Flipped(ValidIO(new VTAMemDPIWrData))
+  val rd = (Decoupled(new VTAMemDPIData))
 }
 
 /** Memory DPI module.
  *
  * Wrapper for Memory Verilog DPI module.
  */
-class VTAMemDPI extends BlackBox with HasBlackBoxResource {
+class VTAMemDPI(implicit val p: Parameters) extends BlackBox(
+  Map(
+    "LEN_BITS" -> p(DpiKey).dpiLenBits,
+    "ADDR_BITS" -> p(DpiKey).dpiAddrBits,
+    "DATA_BITS" -> p(DpiKey).dpiDataBits)) with HasBlackBoxResource {
+
   val io = IO(new Bundle {
     val clock = Input(Clock())
     val reset = Input(Bool())
@@ -75,110 +113,150 @@ class VTAMemDPI extends BlackBox with HasBlackBoxResource {
   setResource("/verilog/VTAMemDPI.v")
 }
 
-class VTAMemDPIToAXI(debug: Boolean = false)(implicit p: Parameters) extends Module {
+class VTAMemDPIToAXI(debug: Boolean = true)(implicit val p: Parameters) extends Module {
   val io = IO(new Bundle {
     val dpi = new VTAMemDPIMaster
     val axi = new AXIClient(p(ShellKey).memParams)
   })
-  val opcode = RegInit(false.B)
-  val len = RegInit(0.U.asTypeOf(chiselTypeOf(io.dpi.req.len)))
-  val addr = RegInit(0.U.asTypeOf(chiselTypeOf(io.dpi.req.addr)))
-  val sIdle :: sReadAddress :: sReadData :: sWriteAddress :: sWriteData :: sWriteResponse :: Nil =
-    Enum(6)
-  val state = RegInit(sIdle)
+  //Read request interface for sw memory manager
+  val ar_valid = RegInit(false.B)
+  val ar_len = RegInit(0.U.asTypeOf(chiselTypeOf(io.dpi.req.ar_len)))
+  val ar_addr = RegInit(0.U.asTypeOf(chiselTypeOf(io.dpi.req.ar_addr)))
+  val ar_id   = RegInit(0.U.asTypeOf(chiselTypeOf(io.dpi.req.ar_len)))
+  val rd_data = RegInit(0.U.asTypeOf(chiselTypeOf(io.dpi.rd.bits.data)))
+  val rIdle :: readData :: Nil = Enum(2)
+  val rstate = RegInit(rIdle)
+  //Write request interface for sw memomry manager
+  val aw_valid = RegInit(false.B)
+  val aw_len = RegInit(0.U.asTypeOf(chiselTypeOf(io.dpi.req.aw_len)))
+  val aw_addr = RegInit(0.U.asTypeOf(chiselTypeOf(io.dpi.req.aw_addr)))
+  val wIdle :: writeAddress :: writeData :: writeResponse :: Nil = Enum(4)
+  val wstate = RegInit(wIdle)
+  //Read Interface to Memory Manager
+  val counter = RegInit(0.U(32.W))
+  val dpiDelay = 16.U
+  val dpiReqQueue = Module(new Queue(new MemRequest, 256))
+  dpiReqQueue.io.enq.valid     := io.axi.ar.valid  & dpiReqQueue.io.enq.ready
+  dpiReqQueue.io.enq.bits.addr := io.axi.ar.bits.addr
+  dpiReqQueue.io.enq.bits.len  := io.axi.ar.bits.len
+  dpiReqQueue.io.enq.bits.id   := io.axi.ar.bits.id
 
-  switch(state) {
-    is(sIdle) {
-      when(io.axi.ar.valid) {
-        state := sReadAddress
-      }.elsewhen(io.axi.aw.valid) {
-        state := sWriteAddress
+  when(dpiReqQueue.io.deq.valid && counter < dpiDelay){
+    counter := counter + 1.U
+  }.elsewhen(dpiReqQueue.io.deq.valid && counter === dpiDelay){
+    counter := counter
+  }.otherwise{
+    counter := 0.U
+  }
+
+  switch(rstate){
+    is(rIdle){
+      when(dpiReqQueue.io.deq.valid && dpiReqQueue.io.deq.bits.len =/=0.U && counter === dpiDelay){
+        rstate := readData
       }
     }
-    is(sReadAddress) {
-      when(io.axi.ar.valid) {
-        state := sReadData
-      }
-    }
-    is(sReadData) {
-      when(io.axi.r.ready && io.dpi.rd.valid && len === 0.U) {
-        state := sIdle
-      }
-    }
-    is(sWriteAddress) {
-      when(io.axi.aw.valid) {
-        state := sWriteData
-      }
-    }
-    is(sWriteData) {
-      when(io.axi.w.valid && io.axi.w.bits.last) {
-        state := sWriteResponse
-      }
-    }
-    is(sWriteResponse) {
-      when(io.axi.b.ready) {
-        state := sIdle
+    is(readData) {
+      when(io.axi.r.ready && io.dpi.rd.valid && ar_len === 1.U) {
+        rstate := rIdle
       }
     }
   }
-
-  when(state === sIdle) {
-    when(io.axi.ar.valid) {
-      opcode := false.B
-      len := io.axi.ar.bits.len
-      addr := io.axi.ar.bits.addr
-    }.elsewhen(io.axi.aw.valid) {
-      opcode := true.B
-      len := io.axi.aw.bits.len
-      addr := io.axi.aw.bits.addr
-    }
-  }.elsewhen(state === sReadData) {
-    when(io.axi.r.ready && io.dpi.rd.valid && len =/= 0.U) {
-      len := len - 1.U
+  when(rstate === rIdle) {
+    when(dpiReqQueue.io.deq.ready){
+      ar_len :=  dpiReqQueue.io.deq.bits.len
+      ar_addr := dpiReqQueue.io.deq.bits.addr
+      ar_id   := dpiReqQueue.io.deq.bits.id
     }
   }
-
-  io.dpi.req.valid := (state === sReadAddress & io.axi.ar.valid) | (state === sWriteAddress & io.axi.aw.valid)
-  io.dpi.req.opcode := opcode
-  io.dpi.req.len := len
-  io.dpi.req.addr := addr
-
-  io.axi.ar.ready := state === sReadAddress
-  io.axi.aw.ready := state === sWriteAddress
-
-  io.axi.r.valid := state === sReadData & io.dpi.rd.valid
-  io.axi.r.bits.data := io.dpi.rd.bits
-  io.axi.r.bits.last := len === 0.U
+  .elsewhen(rstate === readData){
+    when(io.axi.r.ready && io.dpi.rd.valid && ar_len =/= 0.U){
+      ar_len := ar_len - 1.U
+    }
+  }
+dpiReqQueue.io.deq.ready :=  ((dpiReqQueue.io.deq.valid && (rstate === rIdle)) && (counter === dpiDelay))
+when(rstate === rIdle && dpiReqQueue.io.deq.valid){
+  io.dpi.req.ar_len  := dpiReqQueue.io.deq.bits.len
+  io.dpi.req.ar_addr := dpiReqQueue.io.deq.bits.addr
+  io.dpi.req.ar_id   := dpiReqQueue.io.deq.bits.id
+  io.dpi.req.ar_valid := dpiReqQueue.io.deq.ready
+  }.otherwise{
+    io.dpi.req.ar_len  := ar_len
+    io.dpi.req.ar_addr := ar_addr
+    io.dpi.req.ar_id   := ar_id
+    io.dpi.req.ar_valid  := (dpiReqQueue.io.deq.ready)
+  }
+  io.axi.ar.ready := dpiReqQueue.io.enq.ready
+  io.axi.r.valid := io.dpi.rd.valid
+  io.axi.r.bits.data := io.dpi.rd.bits.data
+  io.axi.r.bits.last := (ar_len === 0.U && io.dpi.rd.valid)
   io.axi.r.bits.resp := 0.U
   io.axi.r.bits.user := 0.U
-  io.axi.r.bits.id := 0.U
-  io.dpi.rd.ready := state === sReadData & io.axi.r.ready
+  io.axi.r.bits.id := io.dpi.rd.bits.id
+  io.dpi.rd.ready  := io.axi.r.ready
 
-  io.dpi.wr.valid := state === sWriteData & io.axi.w.valid
-  io.dpi.wr.bits := io.axi.w.bits.data
-  io.axi.w.ready := state === sWriteData
+  //Write Request
+  switch(wstate){
+    is(wIdle){
+      when(io.axi.aw.valid){
+        wstate := writeAddress
+      }
+    }
+    is(writeAddress) {
+      when(io.axi.aw.valid) {
+        wstate := writeData
+      }
+    }
+    is(writeData) {
+      when(io.axi.w.valid && io.axi.w.bits.last) {
+        wstate := writeResponse
+      }
+    }
+    is(writeResponse) {
+      when(io.axi.b.ready) {
+        wstate := wIdle
+      }
+    }
+  }
+  when(wstate === wIdle){
+    when(io.axi.aw.valid){
+      aw_len := io.axi.aw.bits.len
+      aw_addr := io.axi.aw.bits.addr
+    }
+  }
+  io.dpi.req.aw_addr := aw_addr
+  io.dpi.req.aw_len  := aw_len
+  io.dpi.req.aw_valid := RegNext(io.axi.aw.valid) & (wstate === writeAddress)
+  io.axi.aw.ready := wstate === writeAddress
+  io.dpi.wr.valid := wstate === writeData & io.axi.w.valid
+  io.dpi.wr.bits.data := io.axi.w.bits.data
+  io.dpi.wr.bits.strb := io.axi.w.bits.strb
+  io.axi.w.ready := wstate === writeData
 
-  io.axi.b.valid := state === sWriteResponse
+  io.axi.b.valid := wstate === writeResponse
   io.axi.b.bits.resp := 0.U
   io.axi.b.bits.user := 0.U
   io.axi.b.bits.id := 0.U
 
-  if (debug) {
-    when(state === sReadAddress && io.axi.ar.valid) {
-      printf("[VTAMemDPIToAXI] [AR] addr:%x len:%x\n", addr, len)
-    }
-    when(state === sWriteAddress && io.axi.aw.valid) {
-      printf("[VTAMemDPIToAXI] [AW] addr:%x len:%x\n", addr, len)
-    }
-    when(io.axi.r.fire()) {
-      printf("[VTAMemDPIToAXI] [R] last:%x data:%x\n",
-        io.axi.r.bits.last,
-        io.axi.r.bits.data)
-    }
-    when(io.axi.w.fire()) {
-      printf("[VTAMemDPIToAXI] [W] last:%x data:%x\n",
-        io.axi.w.bits.last,
-        io.axi.w.bits.data)
-    }
+if (p(VerifKey).trace) {
+  when(wstate === writeAddress && io.axi.aw.valid) {
+    trace_mgr.Event("MEMDPI_EVENT"," [VTAMemDPIToAXI] [AW] addr:%x len:%x\n", aw_addr, aw_len)
   }
+  when(io.axi.ar.fire()){
+    trace_mgr.Event("MEMDPI_EVENT"," [VTAMemDPIToAXI] [AR] addr:%x id:%x len:%x\n",
+    io.axi.ar.bits.addr,
+    io.axi.ar.bits.id,
+    io.axi.ar.bits.len)
+  }
+  when(io.axi.r.fire()) {
+    trace_mgr.Event("MEMDPI_EVENT"," [VTAMemDPIToAXI] [R] last:%x data:%x id:%x\n",
+    io.axi.r.bits.last,
+    io.axi.r.bits.data,
+    io.axi.r.bits.id)
+  }
+  when(io.axi.w.fire()) {
+    trace_mgr.Event("MEMDPI_EVENT"," [VTAMemDPIToAXI] [W] last:%x data:%x\n",
+    io.axi.w.bits.last,
+    io.axi.w.bits.data)
+  }
+}
 }

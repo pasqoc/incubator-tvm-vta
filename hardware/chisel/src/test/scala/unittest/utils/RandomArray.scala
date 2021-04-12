@@ -17,13 +17,14 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package unittest.util
 
 import scala.util.Random
 import scala.math.pow
 
-class RandomArray(val len: Int, val bits: Int) {
-  val r = new Random
+class RandomArray(val len: Int, val bits: Int, val r: Random) {
   if (bits < 1) throw new IllegalArgumentException ("bits should be greater than 1")
 
   def any : Array[Int] = {
