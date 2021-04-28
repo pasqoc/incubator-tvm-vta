@@ -17,6 +17,8 @@
  * under the License.
  */
 
+// Modified by contributors from Intel Labs
+
 package vta.interface.axi
 
 import chisel3._
@@ -25,7 +27,7 @@ import vta.util.genericbundle._
 
 case class AXIParams(
     coherent: Boolean = false,
-    idBits: Int = 1,
+    idBits: Int = 8,
     addrBits: Int = 32,
     dataBits: Int = 64,
     lenBits: Int = 8,
@@ -202,7 +204,7 @@ class AXIMaster(params: AXIParams) extends AXIBase(params) {
     aw.bits.id := params.idConst.U
     w.bits.id := params.idConst.U
     w.bits.user := params.userConst.U
-    w.bits.strb := Fill(params.strbBits, true.B)
+    //w.bits.strb := Fill(params.strbBits, true.B)
     ar.bits.user := params.userConst.U
     ar.bits.burst := params.burstConst.U
     ar.bits.lock := params.lockConst.U
@@ -211,7 +213,7 @@ class AXIMaster(params: AXIParams) extends AXIBase(params) {
     ar.bits.qos := params.qosConst.U
     ar.bits.region := params.regionConst.U
     ar.bits.size := params.sizeConst.U
-    ar.bits.id := params.idConst.U
+    //ar.bits.id := params.idConst.U
   }
 }
 
